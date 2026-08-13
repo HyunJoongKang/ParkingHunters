@@ -1,7 +1,8 @@
 import type { CSSProperties } from "react";
 import type { ParkingLot } from "../lib/types";
 import StatusChip from "./StatusChip";
-import { formatDistance, formatFee, formatSyncedAgo } from "../lib/format";
+import { formatBaseFee, formatDistance, formatSyncedAgo, getLocalizedParkingName } from "../lib/format";
+import { useSettings } from "../lib/settings";
 
 interface ParkingCardProps {
   lot: ParkingLot;
@@ -9,11 +10,14 @@ interface ParkingCardProps {
 }
 
 export default function ParkingCard({ lot, onSelect }: ParkingCardProps) {
+  const { locale, t } = useSettings();
   return (
     <button type="button" style={styles.card} onClick={() => onSelect(lot.id)}>
       <div style={styles.topRow}>
         <div style={styles.nameCol}>
-          <span style={styles.name}>{lot.name}</span>
+          <span style={styles.name} translate="no" className="notranslate">
+            {getLocalizedParkingName(lot.name, locale)}
+          </span>
           <span style={styles.distance}>{formatDistance(lot.distanceM)}</span>
         </div>
         <StatusChip realtimeSupported={lot.realtimeSupported} congestion={lot.congestion} />
@@ -23,16 +27,18 @@ export default function ParkingCard({ lot, onSelect }: ParkingCardProps) {
         {lot.realtimeSupported ? (
           <span style={styles.spots}>
             <b style={styles.spotsNum}>{lot.availableSpots}</b>
-            <span style={styles.spotsTotal}> / {lot.totalSpots}면</span>
+            <span style={styles.spotsTotal}> / {lot.totalSpots}{t.spotsUnit}</span>
           </span>
         ) : (
-          <span style={styles.spotsMuted}>기본 정보만 제공</span>
+          <span style={styles.spotsMuted}>{t.basicInfoOnly}</span>
         )}
         <span style={styles.dot}>·</span>
-        <span style={styles.synced}>{formatSyncedAgo(lot.lastSyncedMinutesAgo)}</span>
+        <span style={styles.synced}>{formatSyncedAgo(lot.lastSyncedMinutesAgo, locale)}</span>
       </div>
 
-      <div style={styles.feeRow}>{formatFee(lot.fee)}</div>
+      <div style={styles.feeRow} translate="no" className="notranslate">
+        {t.feeBasePrefix} {formatBaseFee(lot.fee, locale)}
+      </div>
     </button>
   );
 }

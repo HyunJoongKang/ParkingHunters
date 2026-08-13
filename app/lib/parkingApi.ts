@@ -142,7 +142,8 @@ async function getCachedLots(): Promise<ParkingLot[]> {
 
 export async function getNearestPublicParkingLots(
   origin: LatLng | null,
-  limit: number
+  limit: number,
+  radiusM?: number
 ): Promise<ParkingLot[]> {
   const lots = await getCachedLots();
 
@@ -150,8 +151,12 @@ export async function getNearestPublicParkingLots(
     return lots.slice(0, limit);
   }
 
-  return [...lots]
+  const withDistance = [...lots]
     .map((lot) => ({ ...lot, distanceM: haversineDistanceM(origin, { lat: lot.lat, lng: lot.lng }) }))
-    .sort((a, b) => a.distanceM - b.distanceM)
-    .slice(0, limit);
+    .sort((a, b) => a.distanceM - b.distanceM);
+
+  const withinRadius =
+    radiusM != null && radiusM > 0 ? withDistance.filter((lot) => lot.distanceM <= radiusM) : withDistance;
+
+  return withinRadius.slice(0, limit);
 }

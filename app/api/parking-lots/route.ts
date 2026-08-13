@@ -7,11 +7,13 @@ export async function GET(req: NextRequest) {
   const lng = Number(searchParams.get("lng"));
   const limitParam = Number(searchParams.get("limit"));
   const limit = Number.isFinite(limitParam) && limitParam > 0 ? limitParam : 6;
+  const radiusParam = Number(searchParams.get("radius"));
+  const radiusM = Number.isFinite(radiusParam) && radiusParam > 0 ? radiusParam : undefined;
 
   const origin = Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null;
 
   try {
-    const lots = await getNearestPublicParkingLots(origin, limit);
+    const lots = await getNearestPublicParkingLots(origin, limit, radiusM);
     return NextResponse.json({ lots });
   } catch (err) {
     return NextResponse.json(

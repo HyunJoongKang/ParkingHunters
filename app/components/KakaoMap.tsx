@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { loadKakaoMapsSdk } from "../lib/kakao";
+import { useSettings } from "../lib/settings";
 import type { LatLng } from "../lib/geo";
 
 export interface KakaoMapMarker {
@@ -34,6 +35,7 @@ export default function KakaoMap({
   currentLocation = null,
   destination = null,
 }: KakaoMapProps) {
+  const { t } = useSettings();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<any>(null);
   const overlaysRef = useRef<any[]>([]);
@@ -45,7 +47,7 @@ export default function KakaoMap({
     const appKey = process.env.NEXT_PUBLIC_KAKAO_JS_KEY;
     if (!appKey) {
       setStatus("error");
-      setErrorMessage("NEXT_PUBLIC_KAKAO_JS_KEY가 설정되어 있지 않습니다.");
+      setErrorMessage(t.mapMissingKey);
       return;
     }
 
@@ -71,7 +73,7 @@ export default function KakaoMap({
       .catch((err: unknown) => {
         if (cancelled) return;
         setStatus("error");
-        setErrorMessage(err instanceof Error ? err.message : "지도를 불러오지 못했습니다.");
+        setErrorMessage(err instanceof Error ? err.message : t.mapLoadFailed);
       });
 
     return () => {
@@ -161,7 +163,7 @@ export default function KakaoMap({
   return (
     <div style={{ ...styles.wrap, height }}>
       <div ref={containerRef} style={styles.canvas} />
-      {status === "loading" && <div style={styles.overlayMsg}>지도를 불러오는 중...</div>}
+      {status === "loading" && <div style={styles.overlayMsg}>{t.mapLoading}</div>}
       {status === "error" && <div style={styles.overlayMsg}>⚠️ {errorMessage}</div>}
     </div>
   );

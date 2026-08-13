@@ -1,4 +1,5 @@
 import type { CSSProperties } from "react";
+import { useSettings } from "../lib/settings";
 import type { Congestion } from "../lib/types";
 import { statusColor, statusLabel } from "../lib/format";
 
@@ -9,8 +10,9 @@ interface StatusChipProps {
 }
 
 export default function StatusChip({ realtimeSupported, congestion, size = "md" }: StatusChipProps) {
+  const { locale } = useSettings();
   const color = statusColor(realtimeSupported, congestion);
-  const label = statusLabel(realtimeSupported, congestion);
+  const label = statusLabel(realtimeSupported, congestion, locale);
   const style: CSSProperties = {
     display: "inline-flex",
     alignItems: "center",
@@ -25,7 +27,7 @@ export default function StatusChip({ realtimeSupported, congestion, size = "md" 
     whiteSpace: "nowrap",
   };
   return (
-    <span style={style}>
+    <span style={style} translate="no" className="notranslate">
       <span
         style={{
           width: 6,

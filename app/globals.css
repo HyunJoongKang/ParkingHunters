@@ -1,5 +1,6 @@
 :root {
   --bg: #eef4f2;
+  --bg-alt: #f6faf9;
   --surface: #ffffff;
   --surface-alt: #e7f1ee;
   --border: #dbe6e2;
@@ -22,6 +23,25 @@
   --radius-sm: 10px;
 }
 
+/* 다크 모드: 설정 모달에서 선택하면 <html data-theme="dark">가 붙는다(app/lib/settings.tsx). */
+:root[data-theme="dark"] {
+  --bg: #0d1613;
+  --bg-alt: #0a100e;
+  --surface: #16211e;
+  --surface-alt: #1d2a26;
+  --border: #29362f;
+  --border-soft: #212d28;
+  --text: #eaf3f0;
+  --text-dim: #a7bab2;
+  --text-faint: #71847a;
+  --accent: #17c2ae;
+  --accent-strong: #3fd9c4;
+  --accent-soft: rgba(23, 194, 174, 0.16);
+  --accent-line: rgba(23, 194, 174, 0.4);
+  --danger: #f4655a;
+  --danger-soft: rgba(244, 101, 90, 0.14);
+}
+
 * {
   box-sizing: border-box;
 }
@@ -34,10 +54,11 @@ body {
 
 body {
   font-family: var(--font-body);
-  background: linear-gradient(180deg, var(--bg) 0%, #f6faf9 340px, #f6faf9 100%);
+  background: linear-gradient(180deg, var(--bg) 0%, var(--bg-alt) 340px, var(--bg-alt) 100%);
   color: var(--text);
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
 
 button {

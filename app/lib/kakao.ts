@@ -1,3 +1,5 @@
+import type { LatLng } from "./geo";
+
 declare global {
   interface Window {
     kakao: any;
@@ -97,6 +99,34 @@ export async function searchDaeguPlaces(
       return true;
     })
     .slice(0, 15);
+}
+
+// 좌표 → 대략적인 지역명(예: "대구 중구 동성로2가")으로 역지오코딩한다. 검색창 아래
+// "현재 위치" 칩에 쓰인다. 건물 주소 DB가 없는 좌표도 있어 coord2Address 대신 항상
+// 행정/법정동 계층을 내려주는 coord2RegionCode를 쓴다.
+export function reverseGeocode(coords: LatLng): Promise<string | null> {
+  return new Promise((resolve) => {
+    if (!window.kakao?.maps?.services?.Geocoder) {
+      resolve(null);
+      return;
+    }
+    const geocoder = new window.kakao.maps.services.Geocoder();
+    geocoder.coord2RegionCode(coords.lng, coords.lat, (data: any[], status: string) => {
+      if (status !== window.kakao.maps.services.Status.OK || !data.length) {
+        resolve(null);
+        return;
+      }
+      const region = data.find((d) => d.region_type === "H") ?? data[0];
+      const sido = region.region_1depth_name?.replace(
+        /(특별자치시|특별자치도|광역시|특별시)$/,
+        ""
+      );
+      const label = [sido, region.region_2depth_name, region.region_3depth_name]
+        .filter(Boolean)
+        .join(" ");
+      resolve(label || null);
+    });
+  });
 }
 
 const KAKAO_SCRIPT_ID = "kakao-map-sdk";

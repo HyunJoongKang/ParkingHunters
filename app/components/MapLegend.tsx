@@ -1,21 +1,23 @@
 import type { CSSProperties } from "react";
-import { CONGESTION_COLOR, CONGESTION_LABEL, UNKNOWN_COLOR } from "../lib/format";
+import { CONGESTION_COLOR, congestionLabel, UNKNOWN_COLOR } from "../lib/format";
+import { useSettings } from "../lib/settings";
 import type { Congestion } from "../lib/types";
 
 const ORDER: Congestion[] = ["available", "moderate", "busy", "full"];
 
 export default function MapLegend() {
+  const { locale, t } = useSettings();
   return (
-    <div style={styles.row}>
+    <div style={styles.row} translate="no" className="notranslate">
       {ORDER.map((c) => (
         <span key={c} style={styles.item}>
           <span style={{ ...styles.dot, background: CONGESTION_COLOR[c] }} />
-          {CONGESTION_LABEL[c]}
+          {congestionLabel(c, locale)}
         </span>
       ))}
       <span style={styles.item}>
         <span style={{ ...styles.dot, background: UNKNOWN_COLOR }} />
-        정보없음
+        {t.statusUnknown}
       </span>
     </div>
   );

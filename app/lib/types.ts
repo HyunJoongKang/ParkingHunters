@@ -26,10 +26,3 @@ export interface ParkingLot {
   realtimeSupported: boolean;
   lastSyncedMinutesAgo: number | null;
 }
-
-export type SearchMode = "destination" | "current";
-
-export interface SearchContext {
-  mode: SearchMode;
-  label: string;
-}

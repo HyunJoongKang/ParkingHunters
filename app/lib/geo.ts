@@ -18,8 +18,3 @@ export function haversineDistanceM(a: LatLng, b: LatLng): number {
   return Math.round(R * c);
 }
 
-export const GEOLOCATION_ERROR_MESSAGES: Record<number, string> = {
-  1: "위치 정보 접근 권한이 거부되었습니다. 브라우저 설정에서 위치 권한을 허용해 주세요.",
-  2: "현재 위치를 확인할 수 없습니다.",
-  3: "위치 확인 시간이 초과되었습니다. 다시 시도해 주세요.",
-};
