@@ -6,7 +6,13 @@ import ParkingCard from "./components/ParkingCard";
 import ParkingDetailSheet from "./components/ParkingDetailSheet";
 import SettingsModal from "./components/SettingsModal";
 import type { LatLng } from "./lib/geo";
-import { loadKakaoMapsSdk, reverseGeocode, searchDaeguPlaces, type PlaceSuggestion } from "./lib/kakao";
+import {
+  loadKakaoMapsSdk,
+  resolveDaegyeongSearch,
+  reverseGeocode,
+  searchDaeguPlaces,
+  type PlaceSuggestion,
+} from "./lib/kakao";
 import type { Dictionary } from "./lib/i18n";
 import { useSettings } from "./lib/settings";
 import type { ParkingLot } from "./lib/types";
@@ -26,17 +32,24 @@ function geoErrorMessage(code: number, t: Dictionary): string {
   }
 }
 
-// PRD상 1차 서비스 지역이 대구이므로 대구 바깥의 동명 결과(예: 부산 동성로)가
+// 서비스 지역이 대경권(대구 + 경상북도)이므로 그 바깥의 동명 결과(예: 부산 동성로)가
 // 섞여 나오지 않게 한다. 다만 대구시청 기준 반경(예: 20km)으로 자르면 군위군·
-// 달성군 외곽처럼 시청에서 멀리 떨어진 대구 내 지역(시청에서 40km 이상)이 아예
-// 검색되지 않는 문제가 있었다. 그래서 위치를 좁히는 용도로는 대구 전역(군위군
-// 포함)을 넉넉히 감싸는 사각 영역(rect)만 쓰고, 실제 "대구 안인지"는 주소 문자열이
-// "대구"로 시작하는지로 판단한다(app/lib/kakao.ts의 searchDaeguPlaces).
+// 달성군 외곽처럼 시청에서 멀리 떨어진 지역(시청에서 40km 이상)이 아예 검색되지
+// 않는 문제가 있었다. 그래서 위치를 좁히는 용도로는 대경권 전역을 넉넉히 감싸는
+// 사각 영역(rect)만 쓰고, 실제 "대경권 안인지"는 주소 문자열이 "대구" 또는
+// "경북"/"경상북도"로 시작하는지로 판단한다(app/lib/kakao.ts의 isDaegyeongAddress).
 const DAEGU_CENTER = { lat: 35.8714, lng: 128.6014 };
 // 좌하단(lng,lat), 우상단(lng,lat) — 남쪽 가창면부터 북쪽 군위군, 서쪽 달성군
 // 외곽부터 동쪽 팔공산 자락까지 여유 있게 포함한다.
 const DAEGU_SEARCH_RECT = "128.25,35.60,128.85,36.35";
 const NEAREST_COUNT = 5; // 앱 진입 즉시 보여줄 카드 수(4~5곳 권장 범위)
+
+// 입력값과 이름이 정확히 같은 결과만 "그 장소"로 확정한다. "해운대"처럼 부분
+// 일치("해운대물총칼국수" 등)만 있는 경우는 관련도가 아무리 높아도 자동으로
+// 이동하지 않는다 — 사용자가 목록에서 직접 고른 곳만 선택되어야 한다.
+function findExactMatch(items: PlaceSuggestion[], keyword: string): PlaceSuggestion | undefined {
+  return items.find((s) => s.name.trim() === keyword);
+}
 
 // 공공데이터 페이지 조회 도중 데이터가 밀리는 등의 이유로 같은 lot.id가 두 번 내려오는
 // 경우가 있어, 화면에 반영하기 전에 한 번 걸러낸다.
@@ -70,6 +83,29 @@ export default function Home() {
   const [isLoadingLots, setIsLoadingLots] = useState(false);
   const [resultsError, setResultsError] = useState("");
   const requestIdRef = useRef(0);
+
+  // 대경권(대구·경북) 밖 검색어를 알려주는 토스트. 목록/좌표는 그대로 두고 잠깐
+  // 떴다 사라지는 안내만 보여준다.
+  const [regionToast, setRegionToast] = useState<{ message: string; visible: boolean } | null>(null);
+  const regionToastHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const regionToastClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function showRegionToast(message: string) {
+    if (regionToastHideTimerRef.current) clearTimeout(regionToastHideTimerRef.current);
+    if (regionToastClearTimerRef.current) clearTimeout(regionToastClearTimerRef.current);
+    setRegionToast({ message, visible: true });
+    regionToastHideTimerRef.current = setTimeout(() => {
+      setRegionToast((prev) => (prev ? { ...prev, visible: false } : prev));
+      regionToastClearTimerRef.current = setTimeout(() => setRegionToast(null), 250);
+    }, 2500);
+  }
+
+  useEffect(() => {
+    return () => {
+      if (regionToastHideTimerRef.current) clearTimeout(regionToastHideTimerRef.current);
+      if (regionToastClearTimerRef.current) clearTimeout(regionToastClearTimerRef.current);
+    };
+  }, []);
 
   const [selectedLotId, setSelectedLotId] = useState<string | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
@@ -206,8 +242,8 @@ export default function Home() {
     let cancelled = false;
     const timer = window.setTimeout(() => {
       searchDaeguPlaces(keyword, DAEGU_SEARCH_RECT)
-        .then((results) => {
-          if (!cancelled) setSuggestions(results);
+        .then((result) => {
+          if (!cancelled) setSuggestions(result);
         })
         .catch((err) => {
           console.warn("[KakaoSearch] 검색 실패:", err);
@@ -236,27 +272,42 @@ export default function Home() {
     e.preventDefault();
     const keyword = query.trim();
     if (!keyword) return;
-    setSuggestionsOpen(false);
 
-    // 목록에서 이미 골라둔 연관 검색어가 있으면 그 좌표를 그대로 쓴다.
-    if (suggestions.length > 0) {
-      const best = suggestions[0];
-      setSuggestions([]);
-      setSearchLabel(best.name);
-      setSearchCoords({ lat: best.lat, lng: best.lng });
-      loadNearestLots({ lat: best.lat, lng: best.lng });
-      return;
-    }
-
-    // 목록이 비어있는 상태(예: 포커스를 벗어나 닫힌 경우)로 바로 검색을 눌렀다면
-    // 한 번 더 직접 검색해서 실좌표를 찾는다. 그래도 못 찾을 때만 대구 중심 좌표로 대신한다.
+    // 지명/주소 해석(Geocoder)을 상호명 검색보다 우선한다 — "해운대"는 상호명
+    // 부분일치("해운대물총칼국수")가 아니라 "부산 해운대구"라는 실제 행정구역으로
+    // 먼저 판정되어야 한다. 그 지명이 대경권 밖이면 상호명 검색으로 넘어가지 않고
+    // 바로 안내하고 끝낸다. resolveDaegyeongSearch가 이 우선순위를 처리한다.
     setIsLoadingLots(true);
     try {
-      const results = await searchDaeguPlaces(keyword, DAEGU_SEARCH_RECT);
-      if (results.length > 0) {
-        setSearchLabel(results[0].name);
-        setSearchCoords({ lat: results[0].lat, lng: results[0].lng });
-        await loadNearestLots({ lat: results[0].lat, lng: results[0].lng });
+      const outcome = await resolveDaegyeongSearch(keyword, DAEGU_SEARCH_RECT);
+
+      if (outcome.kind === "outOfRegion") {
+        showRegionToast(t.searchOutOfRegion(keyword));
+        return;
+      }
+
+      if (outcome.kind === "region") {
+        setSuggestions([]);
+        setSuggestionsOpen(false);
+        setSearchLabel(outcome.place.name);
+        setSearchCoords({ lat: outcome.place.lat, lng: outcome.place.lng });
+        await loadNearestLots({ lat: outcome.place.lat, lng: outcome.place.lng });
+        return;
+      }
+
+      // outcome.kind === "places": 지명으로 해석되지 않아(예: "임당역") 상호명
+      // 검색으로 넘어온 경우. 정확히 일치하는 이름이 있을 때만 바로 이동하고,
+      // 부분일치뿐이면 목록만 보여주고 사용자가 직접 고르게 한다.
+      const exact = findExactMatch(outcome.suggestions, keyword);
+      if (exact) {
+        setSuggestions([]);
+        setSuggestionsOpen(false);
+        setSearchLabel(exact.name);
+        setSearchCoords({ lat: exact.lat, lng: exact.lng });
+        await loadNearestLots({ lat: exact.lat, lng: exact.lng });
+      } else if (outcome.suggestions.length > 0) {
+        setSuggestions(outcome.suggestions);
+        setSuggestionsOpen(true);
       } else {
         setResultsError(t.searchNotFound(keyword));
         setSearchLabel(keyword);
@@ -394,6 +445,20 @@ export default function Home() {
             <div style={styles.loadingCard}>
               <span style={styles.spinner} />
               <span>{t.loadingResults}</span>
+            </div>
+          </div>
+        )}
+
+        {regionToast && (
+          <div style={styles.regionToastWrap}>
+            <div
+              style={{
+                ...styles.regionToastCard,
+                opacity: regionToast.visible ? 1 : 0,
+                transform: regionToast.visible ? "translateY(0)" : "translateY(-6px)",
+              }}
+            >
+              {regionToast.message}
             </div>
           </div>
         )}
@@ -637,6 +702,30 @@ const styles: Record<string, CSSProperties> = {
     fontWeight: 600,
     color: "var(--text-dim)",
     boxShadow: "0 12px 28px rgba(12, 26, 23, 0.18)",
+  },
+  regionToastWrap: {
+    position: "fixed",
+    top: "18%",
+    left: 0,
+    right: 0,
+    display: "flex",
+    justifyContent: "center",
+    pointerEvents: "none",
+    zIndex: 20,
+  },
+  regionToastCard: {
+    maxWidth: 320,
+    margin: "0 20px",
+    padding: "13px 18px",
+    borderRadius: 14,
+    background: "var(--danger-soft)",
+    border: "1px solid var(--danger)",
+    color: "var(--danger)",
+    fontSize: 13,
+    fontWeight: 600,
+    textAlign: "center",
+    boxShadow: "0 12px 28px rgba(12, 26, 23, 0.18)",
+    transition: "opacity 0.25s ease, transform 0.25s ease",
   },
   spinner: {
     width: 14,

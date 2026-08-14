@@ -51,6 +51,7 @@ export interface Dictionary {
   nearbyTitle(label: string): string;
   nearbyContext(label: string): string;
   searchNotFound(keyword: string): string;
+  searchOutOfRegion(keyword: string): string;
   specialZones(ev: number, disabled: number): string;
   syncedMinutesAgo(minutes: number): string;
 }
@@ -104,6 +105,7 @@ const ko: Dictionary = {
   nearbyTitle: (label) => `${label} 근처`,
   nearbyContext: (label) => `${label} 근처 · 실거리순`,
   searchNotFound: (keyword) => `"${keyword}"의 정확한 위치를 찾지 못해 대구 중심 기준으로 보여드려요.`,
+  searchOutOfRegion: (keyword) => `"${keyword}"은(는) 대경권(대구·경북) 지역이 아닙니다.`,
   specialZones: (ev, disabled) => `전기차 ${ev}면 · 장애인 ${disabled}면`,
   syncedMinutesAgo: (minutes) => `${minutes}분 전 갱신`,
 };
@@ -158,6 +160,8 @@ const en: Dictionary = {
   nearbyContext: (label) => `Near ${label} · Sorted by distance`,
   searchNotFound: (keyword) =>
     `Couldn't find an exact location for "${keyword}" — showing results near central Daegu instead.`,
+  searchOutOfRegion: (keyword) =>
+    `"${keyword}" is outside the Daegu·Gyeongbuk service area.`,
   specialZones: (ev, disabled) => `EV ${ev} · Accessible ${disabled}`,
   syncedMinutesAgo: (minutes) => `Updated ${minutes} ${minutes === 1 ? "min" : "mins"} ago`,
 };
