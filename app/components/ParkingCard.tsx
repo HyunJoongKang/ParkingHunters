@@ -1,7 +1,8 @@
-import type { CSSProperties } from "react";
+import type { CSSProperties, KeyboardEvent } from "react";
 import type { ParkingLot } from "../lib/types";
 import StatusChip from "./StatusChip";
 import { formatBaseFee, formatDistance, formatSyncedAgo, getLocalizedParkingName } from "../lib/format";
+import { useFavorites } from "../lib/favorites";
 import { useSettings } from "../lib/settings";
 
 interface ParkingCardProps {
@@ -11,8 +12,24 @@ interface ParkingCardProps {
 
 export default function ParkingCard({ lot, onSelect }: ParkingCardProps) {
   const { locale, t } = useSettings();
+  const { isFavorite, toggleFavorite } = useFavorites();
+  const favorite = isFavorite(lot.id);
+
+  function handleKeyDown(e: KeyboardEvent<HTMLDivElement>) {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      onSelect(lot.id);
+    }
+  }
+
   return (
-    <button type="button" style={styles.card} onClick={() => onSelect(lot.id)}>
+    <div
+      style={styles.card}
+      role="button"
+      tabIndex={0}
+      onClick={() => onSelect(lot.id)}
+      onKeyDown={handleKeyDown}
+    >
       <div style={styles.topRow}>
         <div style={styles.nameCol}>
           <span style={styles.name} translate="no" className="notranslate">
@@ -20,7 +37,21 @@ export default function ParkingCard({ lot, onSelect }: ParkingCardProps) {
           </span>
           <span style={styles.distance}>{formatDistance(lot.distanceM)}</span>
         </div>
-        <StatusChip realtimeSupported={lot.realtimeSupported} congestion={lot.congestion} />
+        <div style={styles.topRowRight}>
+          <StatusChip realtimeSupported={lot.realtimeSupported} congestion={lot.congestion} />
+          <button
+            type="button"
+            style={styles.favoriteButton}
+            onClick={(e) => {
+              e.stopPropagation();
+              toggleFavorite(lot.id);
+            }}
+            aria-label={favorite ? t.favoriteRemoveAria : t.favoriteAddAria}
+            aria-pressed={favorite}
+          >
+            {favorite ? "❤️" : "🤍"}
+          </button>
+        </div>
       </div>
 
       <div style={styles.midRow}>
@@ -39,7 +70,7 @@ export default function ParkingCard({ lot, onSelect }: ParkingCardProps) {
       <div style={styles.feeRow} translate="no" className="notranslate">
         {t.feeBasePrefix} {formatBaseFee(lot.fee, locale)}
       </div>
-    </button>
+    </div>
   );
 }
 
@@ -62,6 +93,25 @@ const styles: Record<string, CSSProperties> = {
     alignItems: "flex-start",
     justifyContent: "space-between",
     gap: 10,
+  },
+  topRowRight: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    flexShrink: 0,
+  },
+  favoriteButton: {
+    width: 26,
+    height: 26,
+    flexShrink: 0,
+    border: "none",
+    background: "transparent",
+    fontSize: 15,
+    lineHeight: 1,
+    cursor: "pointer",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
   },
   nameCol: {
     display: "flex",

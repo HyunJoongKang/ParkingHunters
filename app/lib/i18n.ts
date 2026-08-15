@@ -46,6 +46,10 @@ export interface Dictionary {
   searchRadiusLabel: string;
   radius500Label: string;
   radius1kmLabel: string;
+  favoritesOnlyLabel: string;
+  favoritesEmptyText: string;
+  favoriteAddAria: string;
+  favoriteRemoveAria: string;
   locationLabel(label: string): string;
   locationRetryHint(message: string): string;
   nearbyTitle(label: string): string;
@@ -100,6 +104,10 @@ const ko: Dictionary = {
   searchRadiusLabel: "검색 반경",
   radius500Label: "500m",
   radius1kmLabel: "1km",
+  favoritesOnlyLabel: "즐겨찾기만 보기",
+  favoritesEmptyText: "즐겨찾기한 주차장이 없습니다",
+  favoriteAddAria: "즐겨찾기에 추가",
+  favoriteRemoveAria: "즐겨찾기에서 해제",
   locationLabel: (label) => `현재 위치: ${label}`,
   locationRetryHint: (message) => `${message} (탭하여 다시 시도)`,
   nearbyTitle: (label) => `${label} 근처`,
@@ -154,6 +162,10 @@ const en: Dictionary = {
   searchRadiusLabel: "Search radius",
   radius500Label: "500m",
   radius1kmLabel: "1km",
+  favoritesOnlyLabel: "Favorites only",
+  favoritesEmptyText: "No favorite parking lots yet.",
+  favoriteAddAria: "Add to favorites",
+  favoriteRemoveAria: "Remove from favorites",
   locationLabel: (label) => `Current location: ${label}`,
   locationRetryHint: (message) => `${message} (tap to retry)`,
   nearbyTitle: (label) => `Near ${label}`,

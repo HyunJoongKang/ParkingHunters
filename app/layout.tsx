@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Gowun_Dodum, Noto_Sans_KR } from "next/font/google";
 import KakaoMapsLoader from "./components/KakaoMapsLoader";
+import { FavoritesProvider } from "./lib/favorites";
 import { SettingsProvider } from "./lib/settings";
 import "./globals.css";
 
@@ -53,8 +54,10 @@ export default function RootLayout({
       </head>
       <body className={`${display.variable} ${body.variable}`}>
         <SettingsProvider>
-          <KakaoMapsLoader />
-          {children}
+          <FavoritesProvider>
+            <KakaoMapsLoader />
+            {children}
+          </FavoritesProvider>
         </SettingsProvider>
       </body>
     </html>

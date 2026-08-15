@@ -10,6 +10,7 @@ import {
   getLocalizedParkingName,
   statusColor,
 } from "../lib/format";
+import { useFavorites } from "../lib/favorites";
 import { useSettings } from "../lib/settings";
 import type { ParkingLot } from "../lib/types";
 
@@ -27,6 +28,7 @@ function openKakaoNavigation(lot: ParkingLot) {
 
 export default function ParkingDetailSheet({ lot, open, onClose }: ParkingDetailSheetProps) {
   const { locale, t } = useSettings();
+  const { isFavorite, toggleFavorite } = useFavorites();
   // 닫히는 애니메이션(슬라이드 다운) 중에도 내용이 비어 보이지 않도록, 마지막으로
   // 선택된 주차장 정보를 별도로 들고 있다가 open이 true로 바뀔 때만 최신 lot으로 갱신한다.
   const [displayLot, setDisplayLot] = useState<ParkingLot | null>(lot);
@@ -40,6 +42,7 @@ export default function ParkingDetailSheet({ lot, open, onClose }: ParkingDetail
   // 카카오맵 길찾기(openKakaoNavigation)에는 실제 검색에 쓰이는 원래 한국어 이름을
   // 그대로 써야 하므로, 화면 표시용 이 값과 분리해 둔다.
   const localizedName = getLocalizedParkingName(displayLot.name, locale);
+  const favorite = isFavorite(displayLot.id);
 
   return (
     <div
@@ -55,6 +58,15 @@ export default function ParkingDetailSheet({ lot, open, onClose }: ParkingDetail
         aria-label={localizedName}
       >
         <div style={styles.grabber} />
+        <button
+          type="button"
+          style={styles.favoriteButton}
+          onClick={() => toggleFavorite(displayLot.id)}
+          aria-label={favorite ? t.favoriteRemoveAria : t.favoriteAddAria}
+          aria-pressed={favorite}
+        >
+          {favorite ? "❤️" : "🤍"}
+        </button>
         <button type="button" style={styles.closeButton} onClick={onClose} aria-label={t.closeAria}>
           ✕
         </button>
@@ -189,6 +201,22 @@ const styles: Record<string, CSSProperties> = {
     cursor: "pointer",
     zIndex: 1,
   },
+  favoriteButton: {
+    position: "absolute",
+    top: 12,
+    right: 50,
+    width: 28,
+    height: 28,
+    borderRadius: "50%",
+    border: "none",
+    background: "var(--surface-alt)",
+    fontSize: 14,
+    cursor: "pointer",
+    zIndex: 1,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+  },
   scrollArea: {
     overflowY: "auto",
     padding: "14px 20px 4px",
@@ -200,7 +228,7 @@ const styles: Record<string, CSSProperties> = {
     display: "flex",
     flexDirection: "column",
     gap: 6,
-    paddingRight: 34,
+    paddingRight: 70,
   },
   name: {
     margin: 0,

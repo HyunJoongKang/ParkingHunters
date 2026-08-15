@@ -14,6 +14,7 @@ import {
   type PlaceSuggestion,
 } from "./lib/kakao";
 import type { Dictionary } from "./lib/i18n";
+import { useFavorites } from "./lib/favorites";
 import { useSettings } from "./lib/settings";
 import type { ParkingLot } from "./lib/types";
 
@@ -64,6 +65,8 @@ function dedupeById<T extends { id: string }>(items: T[]): T[] {
 
 export default function Home() {
   const { t, radiusM } = useSettings();
+  const { isFavorite } = useFavorites();
+  const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
   const [query, setQuery] = useState("");
   const [suggestions, setSuggestions] = useState<PlaceSuggestion[]>([]);
   const [suggestionsOpen, setSuggestionsOpen] = useState(false);
@@ -111,6 +114,7 @@ export default function Home() {
   const [detailOpen, setDetailOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const selectedLot = nearestLots.find((l) => l.id === selectedLotId) ?? null;
+  const displayedLots = showFavoritesOnly ? nearestLots.filter((lot) => isFavorite(lot.id)) : nearestLots;
 
   // 대경권 공영주차장 전체(공공데이터포털) 중 기준 좌표에서 가장 가까운 곳들을 서버 API로 조회한다.
   async function loadNearestLots(coords: LatLng | null) {
@@ -405,15 +409,28 @@ export default function Home() {
             )}
           </div>
 
-          <button
-            type="button"
-            style={styles.locationChip}
-            onClick={requestCurrentLocation}
-            translate="no"
-            className="notranslate"
-          >
-            📍 {locationChipText}
-          </button>
+          <div style={styles.chipRow}>
+            <button
+              type="button"
+              style={styles.locationChip}
+              onClick={requestCurrentLocation}
+              translate="no"
+              className="notranslate"
+            >
+              📍 {locationChipText}
+            </button>
+            <button
+              type="button"
+              style={{
+                ...styles.favoritesOnlyChip,
+                ...(showFavoritesOnly ? styles.favoritesOnlyChipActive : null),
+              }}
+              onClick={() => setShowFavoritesOnly((prev) => !prev)}
+              aria-pressed={showFavoritesOnly}
+            >
+              {showFavoritesOnly ? "❤️" : "🤍"} {t.favoritesOnlyLabel}
+            </button>
+          </div>
 
           {searchLabel && (
             <div style={styles.contextRow}>
@@ -431,11 +448,13 @@ export default function Home() {
           {resultsError && <p style={styles.resultsErrorText}>{resultsError}</p>}
 
           <div style={styles.list}>
-            {nearestLots.map((lot, index) => (
+            {displayedLots.map((lot, index) => (
               <ParkingCard key={`${lot.id}-${index}`} lot={lot} onSelect={openDetail} />
             ))}
-            {!isLoadingLots && nearestLots.length === 0 && !resultsError && (
-              <p style={styles.emptyText}>{t.emptyResults}</p>
+            {!isLoadingLots && displayedLots.length === 0 && !resultsError && (
+              <p style={styles.emptyText}>
+                {showFavoritesOnly ? t.favoritesEmptyText : t.emptyResults}
+              </p>
             )}
           </div>
         </section>
@@ -627,6 +646,12 @@ const styles: Record<string, CSSProperties> = {
     fontSize: 14.5,
     color: "var(--text)",
   },
+  chipRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    flexWrap: "wrap",
+  },
   locationChip: {
     alignSelf: "flex-start",
     display: "inline-flex",
@@ -640,6 +665,25 @@ const styles: Record<string, CSSProperties> = {
     fontWeight: 600,
     fontSize: 12,
     cursor: "pointer",
+  },
+  favoritesOnlyChip: {
+    alignSelf: "flex-start",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 4,
+    padding: "6px 12px",
+    borderRadius: 999,
+    border: "1px solid var(--border)",
+    background: "var(--surface-alt)",
+    color: "var(--text-dim)",
+    fontWeight: 600,
+    fontSize: 12,
+    cursor: "pointer",
+  },
+  favoritesOnlyChipActive: {
+    border: "1px solid var(--accent-line)",
+    background: "var(--accent-soft)",
+    color: "var(--accent-strong)",
   },
   contextRow: {
     display: "flex",
