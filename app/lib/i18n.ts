@@ -1,3 +1,4 @@
+import type { CategoryFilterKey } from "./parkingFilters";
 import type { Congestion } from "./types";
 
 export type Locale = "ko" | "en";
@@ -15,9 +16,11 @@ export interface Dictionary {
   langEnglish: string;
   closeAria: string;
   navigateButton: string;
+  navigateButtonShort: string;
+  listViewLabel: string;
+  mapViewLabel: string;
   resetToCurrentLocation: string;
   emptyResults: string;
-  loadingResults: string;
   resultsLoadFailed: string;
   feeSectionTitle: string;
   feeBaseLabel: string;
@@ -50,6 +53,12 @@ export interface Dictionary {
   favoritesEmptyText: string;
   favoriteAddAria: string;
   favoriteRemoveAria: string;
+  categoryFilterLabel: Record<CategoryFilterKey, string>;
+  filterEmptyText: string;
+  badgePublic: string;
+  badgePrivate: string;
+  badgeFree: string;
+  badgePaid: string;
   locationLabel(label: string): string;
   locationRetryHint(message: string): string;
   nearbyTitle(label: string): string;
@@ -73,9 +82,11 @@ const ko: Dictionary = {
   langEnglish: "English",
   closeAria: "닫기",
   navigateButton: "🧭 길찾기",
+  navigateButtonShort: "길찾기",
+  listViewLabel: "리스트 보기",
+  mapViewLabel: "지도 보기",
   resetToCurrentLocation: "현재 위치로",
   emptyResults: "주변 주차장을 찾지 못했어요.",
-  loadingResults: "주변 주차장을 찾는 중...",
   resultsLoadFailed: "주차장 정보를 불러오지 못했습니다.",
   feeSectionTitle: "요금",
   feeBaseLabel: "기본 요금",
@@ -108,6 +119,18 @@ const ko: Dictionary = {
   favoritesEmptyText: "즐겨찾기한 주차장이 없습니다",
   favoriteAddAria: "즐겨찾기에 추가",
   favoriteRemoveAria: "즐겨찾기에서 해제",
+  categoryFilterLabel: {
+    all: "전체",
+    free: "무료 주차",
+    ev: "전기차 충전",
+    disabled: "장애인 전용",
+    public: "공영만",
+  },
+  filterEmptyText: "조건에 맞는 주차장이 없습니다",
+  badgePublic: "공영",
+  badgePrivate: "민영",
+  badgeFree: "무료",
+  badgePaid: "유료",
   locationLabel: (label) => `현재 위치: ${label}`,
   locationRetryHint: (message) => `${message} (탭하여 다시 시도)`,
   nearbyTitle: (label) => `${label} 근처`,
@@ -131,9 +154,11 @@ const en: Dictionary = {
   langEnglish: "English",
   closeAria: "Close",
   navigateButton: "🧭 Directions",
+  navigateButtonShort: "Go",
+  listViewLabel: "List view",
+  mapViewLabel: "Map view",
   resetToCurrentLocation: "Use Current Location",
   emptyResults: "No nearby parking lots found.",
-  loadingResults: "Finding nearby parking lots...",
   resultsLoadFailed: "Couldn't load parking lot information.",
   feeSectionTitle: "Fees",
   feeBaseLabel: "Base fee",
@@ -166,6 +191,18 @@ const en: Dictionary = {
   favoritesEmptyText: "No favorite parking lots yet.",
   favoriteAddAria: "Add to favorites",
   favoriteRemoveAria: "Remove from favorites",
+  categoryFilterLabel: {
+    all: "All",
+    free: "Free parking",
+    ev: "EV charging",
+    disabled: "Accessible only",
+    public: "Public only",
+  },
+  filterEmptyText: "No parking lots match the selected filter.",
+  badgePublic: "Public",
+  badgePrivate: "Private",
+  badgeFree: "Free",
+  badgePaid: "Paid",
   locationLabel: (label) => `Current location: ${label}`,
   locationRetryHint: (message) => `${message} (tap to retry)`,
   nearbyTitle: (label) => `Near ${label}`,

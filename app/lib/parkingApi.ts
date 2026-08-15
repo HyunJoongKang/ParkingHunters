@@ -1,4 +1,5 @@
 import { haversineDistanceM, type LatLng } from "./geo";
+import { clampAvailableSpots, resolveCongestion } from "./format";
 import type { ParkingLot } from "./types";
 
 // 공공데이터포털 "전국주차장정보표준데이터" (국토교통부) + 대구광역시 통합주차정보시스템(pis.daegu.go.kr).
@@ -188,6 +189,14 @@ function mapDaeguItem(
   }
 
   const realtime = congestionByPkltId.get(item.prkInfo.pkltId);
+  const totalSpots = item.prkFcltInfo.prkNocmprt || 0;
+  // 대구시 실시간 API가 순간적으로 totalSpots보다 큰 잔여 면수(예: 46/40)를 내려보내는
+  // 경우가 있어, 화면에 닿기 전에 여기서 한 번 보정하고 상태 태그도 그 값과 맞춘다.
+  const availableSpots = realtime ? clampAvailableSpots(realtime.totRmndPrkNocmprt, totalSpots) : null;
+  const congestion =
+    realtime && availableSpots != null
+      ? resolveCongestion(availableSpots, totalSpots, mapDaeguCongestionCode(realtime.prkCnfSttsCd))
+      : "moderate";
 
   return {
     id: item.prkInfo.pkltId,
@@ -196,9 +205,9 @@ function mapDaeguItem(
     lat,
     lng,
     distanceM: 0, // 조회 시점에 haversine으로 다시 계산해 채운다.
-    totalSpots: item.prkFcltInfo.prkNocmprt || 0,
-    availableSpots: realtime ? realtime.totRmndPrkNocmprt : null,
-    congestion: realtime ? mapDaeguCongestionCode(realtime.prkCnfSttsCd) : "moderate",
+    totalSpots,
+    availableSpots,
+    congestion,
     fee: mapDaeguFee(item.prkOperInfo),
     hours: mapDaeguHours(item.prkOperInfo),
     evSpots: countDaeguZones(item.prkZoneInfoList, "전기"),

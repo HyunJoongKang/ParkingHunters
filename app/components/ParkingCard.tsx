@@ -1,7 +1,14 @@
-import type { CSSProperties, KeyboardEvent } from "react";
+import { useState, type CSSProperties, type KeyboardEvent } from "react";
 import type { ParkingLot } from "../lib/types";
 import StatusChip from "./StatusChip";
-import { formatBaseFee, formatDistance, formatSyncedAgo, getLocalizedParkingName } from "../lib/format";
+import {
+  formatBaseFee,
+  formatDistance,
+  formatSyncedAgo,
+  getLocalizedParkingName,
+  isPrivateLot,
+  statusColor,
+} from "../lib/format";
 import { useFavorites } from "../lib/favorites";
 import { useSettings } from "../lib/settings";
 
@@ -14,6 +21,11 @@ export default function ParkingCard({ lot, onSelect }: ParkingCardProps) {
   const { locale, t } = useSettings();
   const { isFavorite, toggleFavorite } = useFavorites();
   const favorite = isFavorite(lot.id);
+  const [justToggled, setJustToggled] = useState(false);
+
+  const isFree = lot.fee.baseFee === 0;
+  const isPrivate = isPrivateLot(lot.name);
+  const spotsColor = statusColor(lot.realtimeSupported, lot.congestion);
 
   function handleKeyDown(e: KeyboardEvent<HTMLDivElement>) {
     if (e.key === "Enter" || e.key === " ") {
@@ -24,6 +36,7 @@ export default function ParkingCard({ lot, onSelect }: ParkingCardProps) {
 
   return (
     <div
+      className="app-card"
       style={styles.card}
       role="button"
       tabIndex={0}
@@ -41,11 +54,16 @@ export default function ParkingCard({ lot, onSelect }: ParkingCardProps) {
           <StatusChip realtimeSupported={lot.realtimeSupported} congestion={lot.congestion} />
           <button
             type="button"
-            style={styles.favoriteButton}
+            style={{
+              ...styles.favoriteButton,
+              animation: justToggled ? "heart-pop 0.35s ease" : undefined,
+            }}
             onClick={(e) => {
               e.stopPropagation();
               toggleFavorite(lot.id);
+              setJustToggled(true);
             }}
+            onAnimationEnd={() => setJustToggled(false)}
             aria-label={favorite ? t.favoriteRemoveAria : t.favoriteAddAria}
             aria-pressed={favorite}
           >
@@ -54,17 +72,40 @@ export default function ParkingCard({ lot, onSelect }: ParkingCardProps) {
         </div>
       </div>
 
-      <div style={styles.midRow}>
+      <div style={styles.badgeRow} translate="no" className="notranslate">
+        <span
+          style={{
+            ...styles.badge,
+            ...(isPrivate ? styles.badgeNeutral : styles.badgeAccent),
+          }}
+        >
+          {isPrivate ? t.badgePrivate : t.badgePublic}
+        </span>
+        <span
+          style={{
+            ...styles.badge,
+            ...(isFree ? styles.badgeFree : styles.badgeNeutral),
+          }}
+        >
+          {isFree ? t.badgeFree : t.badgePaid}
+        </span>
         {lot.realtimeSupported ? (
-          <span style={styles.spots}>
-            <b style={styles.spotsNum}>{lot.availableSpots}</b>
-            <span style={styles.spotsTotal}> / {lot.totalSpots}{t.spotsUnit}</span>
+          <span
+            style={{
+              ...styles.badge,
+              color: spotsColor,
+              background: `${spotsColor}1a`,
+              border: `1px solid ${spotsColor}55`,
+              fontVariantNumeric: "tabular-nums",
+            }}
+          >
+            🅿️ {lot.availableSpots}/{lot.totalSpots}
+            {t.spotsUnit}
           </span>
         ) : (
-          <span style={styles.spotsMuted}>{t.basicInfoOnly}</span>
+          <span style={{ ...styles.badge, ...styles.badgeMuted }}>{t.basicInfoOnly}</span>
         )}
-        <span style={styles.dot}>·</span>
-        <span style={styles.synced}>{formatSyncedAgo(lot.lastSyncedMinutesAgo, locale)}</span>
+        <span style={styles.syncedCaption}>{formatSyncedAgo(lot.lastSyncedMinutesAgo, locale)}</span>
       </div>
 
       <div style={styles.feeRow} translate="no" className="notranslate">
@@ -78,14 +119,15 @@ const styles: Record<string, CSSProperties> = {
   card: {
     display: "flex",
     flexDirection: "column",
-    gap: 8,
+    gap: 10,
     width: "100%",
     textAlign: "left",
     background: "var(--surface)",
-    border: "1px solid var(--border)",
-    borderRadius: "var(--radius-md)",
-    padding: "14px 16px",
+    border: "1px solid var(--border-soft)",
+    borderRadius: "var(--radius-xl)",
+    padding: "16px 18px",
     cursor: "pointer",
+    boxShadow: "var(--shadow-md)",
     animation: "fade-in-up 0.25s ease both",
   },
   topRow: {
@@ -132,38 +174,52 @@ const styles: Record<string, CSSProperties> = {
     color: "var(--text-faint)",
     fontWeight: 600,
   },
-  midRow: {
+  badgeRow: {
     display: "flex",
-    alignItems: "baseline",
+    alignItems: "center",
+    flexWrap: "wrap",
     gap: 6,
-    fontSize: 12.5,
-    color: "var(--text-dim)",
   },
-  spots: {
-    fontVariantNumeric: "tabular-nums",
+  badge: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 3,
+    padding: "4px 9px",
+    borderRadius: 999,
+    fontSize: 11,
+    fontWeight: 700,
+    whiteSpace: "nowrap",
   },
-  spotsNum: {
-    fontFamily: "var(--font-display)",
-    fontSize: 17,
+  badgeAccent: {
     color: "var(--accent-strong)",
+    background: "var(--accent-soft)",
+    border: "1px solid var(--accent-line)",
   },
-  spotsTotal: {
+  badgeFree: {
+    color: "#1fa971",
+    background: "rgba(31, 169, 113, 0.12)",
+    border: "1px solid rgba(31, 169, 113, 0.35)",
+  },
+  badgeNeutral: {
+    color: "var(--text-dim)",
+    background: "var(--surface-alt)",
+    border: "1px solid var(--border)",
+  },
+  badgeMuted: {
+    color: "var(--text-faint)",
+    background: "var(--surface-alt)",
+    border: "1px solid var(--border)",
+  },
+  syncedCaption: {
+    fontSize: 11,
+    color: "var(--text-faint)",
     fontWeight: 600,
-  },
-  spotsMuted: {
-    fontWeight: 600,
-    color: "var(--text-faint)",
-  },
-  dot: {
-    color: "var(--text-faint)",
-  },
-  synced: {
-    color: "var(--text-faint)",
+    marginLeft: "auto",
   },
   feeRow: {
     fontSize: 12.5,
     color: "var(--text-dim)",
-    paddingTop: 6,
+    paddingTop: 8,
     borderTop: "1px dashed var(--border)",
   },
 };

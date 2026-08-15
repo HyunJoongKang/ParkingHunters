@@ -106,7 +106,7 @@ const styles: Record<string, CSSProperties> = {
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    background: "rgba(12, 26, 23, 0.45)",
+    background: "rgba(0, 0, 0, 0.5)",
     transition: "opacity 0.22s ease",
     zIndex: 30,
     padding: 20,
@@ -120,7 +120,7 @@ const styles: Record<string, CSSProperties> = {
     display: "flex",
     flexDirection: "column",
     gap: 18,
-    boxShadow: "0 20px 44px rgba(12, 26, 23, 0.24)",
+    boxShadow: "0 20px 44px rgba(0, 0, 0, 0.24)",
     transition: "transform 0.22s ease, opacity 0.22s ease",
   },
   headerRow: {

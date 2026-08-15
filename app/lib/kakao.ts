@@ -1,4 +1,4 @@
-import type { LatLng } from "./geo";
+import type { LatLng, RegionLabel } from "./geo";
 
 declare global {
   interface Window {
@@ -204,10 +204,13 @@ export async function resolveDaegyeongSearch(
   return { kind: "places", suggestions };
 }
 
-// 좌표 → 대략적인 지역명(예: "대구 중구 동성로2가")으로 역지오코딩한다. 검색창 아래
+// 좌표 → 행정구역 계층(예: 대구/수성구/고산1동)으로 역지오코딩한다. 검색창 아래
 // "현재 위치" 칩에 쓰인다. 건물 주소 DB가 없는 좌표도 있어 coord2Address 대신 항상
 // 행정/법정동 계층을 내려주는 coord2RegionCode를 쓴다.
-export function reverseGeocode(coords: LatLng): Promise<string | null> {
+// 한글/영문 화면 표기로 합치는 건 format.ts의 formatRegionLabel이 맡는다 — 계층별로
+// 로마자 접미사 규칙이 달라(예: 대구는 접미사 없음, 수성구는 "-gu") 문자열로 미리
+// 합쳐버리면 그 구분이 사라진다.
+export function reverseGeocode(coords: LatLng): Promise<RegionLabel | null> {
   return new Promise((resolve) => {
     if (!window.kakao?.maps?.services?.Geocoder) {
       resolve(null);
@@ -224,10 +227,15 @@ export function reverseGeocode(coords: LatLng): Promise<string | null> {
         /(특별자치시|특별자치도|광역시|특별시)$/,
         ""
       );
-      const label = [sido, region.region_2depth_name, region.region_3depth_name]
-        .filter(Boolean)
-        .join(" ");
-      resolve(label || null);
+      if (!sido) {
+        resolve(null);
+        return;
+      }
+      resolve({
+        sido,
+        gu: region.region_2depth_name || null,
+        dong: region.region_3depth_name || null,
+      });
     });
   });
 }

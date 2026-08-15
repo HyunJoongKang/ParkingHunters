@@ -12,34 +12,64 @@
   --accent-strong: #0b7c72;
   --accent-soft: #e0f5f2;
   --accent-line: rgba(15, 156, 143, 0.35);
+  --accent-rgb: 15, 156, 143;
   --danger: #e0473d;
   --danger-soft: #fdeceb;
+
+  /* 글래스모피즘(검색바/필터 헤더) 전용 — surface 위에 반투명하게 얹고 backdrop-filter로 블러 처리한다. */
+  --glass-bg: rgba(255, 255, 255, 0.68);
+  --glass-border: rgba(255, 255, 255, 0.5);
+  --skeleton-base: #e7f1ee;
+  --skeleton-shine: #f6faf9;
+
+  --shadow-sm: 0 2px 8px rgba(12, 26, 23, 0.06);
+  --shadow-md: 0 10px 24px rgba(12, 26, 23, 0.08);
+  --shadow-lg: 0 18px 40px rgba(12, 26, 23, 0.16);
+
+  /* 필터 칩(비활성) 전용 텍스트 색 — 다크 모드의 글래스 헤더 위에서 --text-dim보다
+     더 밝혀 야간 가독성을 높인다. 라이트 모드는 기존 --text-dim과 동일하게 둔다. */
+  --filter-chip-text: var(--text-dim);
 
   --font-display: "Gowun Dodum", "Apple SD Gothic Neo", sans-serif;
   --font-body: "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
 
+  --radius-xl: 26px;
   --radius-lg: 22px;
   --radius-md: 16px;
   --radius-sm: 10px;
 }
 
-/* 다크 모드: 설정 모달에서 선택하면 <html data-theme="dark">가 붙는다(app/lib/settings.tsx). */
+/* 다크 모드: 설정 모달에서 선택하면 <html data-theme="dark">가 붙는다(app/lib/settings.tsx).
+   "True Black" — 배경은 순수 검정, 표면/보더/보조 텍스트는 색조 없는 zinc 회색 계열로만
+   구성해 이전의 짙은 초록/카키 톤을 완전히 배제한다. */
 :root[data-theme="dark"] {
-  --bg: #0d1613;
-  --bg-alt: #0a100e;
-  --surface: #16211e;
-  --surface-alt: #1d2a26;
-  --border: #29362f;
-  --border-soft: #212d28;
-  --text: #eaf3f0;
-  --text-dim: #a7bab2;
-  --text-faint: #71847a;
+  --bg: #000000;
+  --bg-alt: #000000;
+  --surface: #0a0a0a;
+  --surface-alt: #18181b;
+  --border: #27272a;
+  --border-soft: #1f1f22;
+  --text: #ffffff;
+  --text-dim: #d4d4d8;
+  --text-faint: #a1a1aa;
   --accent: #17c2ae;
   --accent-strong: #3fd9c4;
   --accent-soft: rgba(23, 194, 174, 0.16);
   --accent-line: rgba(23, 194, 174, 0.4);
+  --accent-rgb: 23, 194, 174;
   --danger: #f4655a;
   --danger-soft: rgba(244, 101, 90, 0.14);
+
+  --glass-bg: rgba(0, 0, 0, 0.72);
+  --glass-border: rgba(255, 255, 255, 0.08);
+  --skeleton-base: #18181b;
+  --skeleton-shine: #27272a;
+
+  --filter-chip-text: #e4e4e7;
+
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 10px 24px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 18px 40px rgba(0, 0, 0, 0.65);
 }
 
 * {
@@ -90,12 +120,6 @@ input:focus-visible,
   }
 }
 
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
 @keyframes fade-in-up {
   from {
     opacity: 0;
@@ -105,4 +129,62 @@ input:focus-visible,
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+@keyframes heart-pop {
+  0% {
+    transform: scale(1);
+  }
+  35% {
+    transform: scale(1.42);
+  }
+  60% {
+    transform: scale(0.92);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes skeleton-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* 주차장 카드 공통 인터랙션 — 인라인 style로는 :hover/:active를 표현할 수 없어 클래스로 뺐다. */
+.app-card {
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+.app-card:hover {
+  box-shadow: var(--shadow-lg);
+  transform: translateY(-2px);
+}
+.app-card:active {
+  transform: scale(0.985);
+  box-shadow: var(--shadow-sm);
+}
+
+.primary-cta {
+  transition: transform 0.16s ease, box-shadow 0.16s ease, filter 0.16s ease;
+}
+.primary-cta:hover {
+  filter: brightness(1.05);
+}
+.primary-cta:active {
+  transform: scale(0.97);
+}
+
+.skeleton {
+  background: linear-gradient(
+    100deg,
+    var(--skeleton-base) 40%,
+    var(--skeleton-shine) 50%,
+    var(--skeleton-base) 60%
+  );
+  background-size: 250% 100%;
+  animation: skeleton-shimmer 1.4s ease-in-out infinite;
 }

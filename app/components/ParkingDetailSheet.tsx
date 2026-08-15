@@ -7,10 +7,12 @@ import {
   formatAddFee,
   formatBaseFee,
   formatSyncedAgo,
+  getLocalizedAddress,
   getLocalizedParkingName,
   statusColor,
 } from "../lib/format";
 import { useFavorites } from "../lib/favorites";
+import { startNavigation } from "../lib/navi";
 import { useSettings } from "../lib/settings";
 import type { ParkingLot } from "../lib/types";
 
@@ -18,12 +20,6 @@ interface ParkingDetailSheetProps {
   lot: ParkingLot | null;
   open: boolean;
   onClose: () => void;
-}
-
-// 목적지 이름 + 좌표로 카카오맵 길찾기를 새 탭에서 연다.
-function openKakaoNavigation(lot: ParkingLot) {
-  const url = `https://map.kakao.com/link/to/${encodeURIComponent(lot.name)},${lot.lat},${lot.lng}`;
-  window.open(url, "_blank", "noopener,noreferrer");
 }
 
 export default function ParkingDetailSheet({ lot, open, onClose }: ParkingDetailSheetProps) {
@@ -42,6 +38,7 @@ export default function ParkingDetailSheet({ lot, open, onClose }: ParkingDetail
   // 카카오맵 길찾기(openKakaoNavigation)에는 실제 검색에 쓰이는 원래 한국어 이름을
   // 그대로 써야 하므로, 화면 표시용 이 값과 분리해 둔다.
   const localizedName = getLocalizedParkingName(displayLot.name, locale);
+  const localizedAddress = getLocalizedAddress(displayLot.address, locale);
   const favorite = isFavorite(displayLot.id);
 
   return (
@@ -77,7 +74,7 @@ export default function ParkingDetailSheet({ lot, open, onClose }: ParkingDetail
               {localizedName}
             </h2>
             <p style={styles.address} translate="no" className="notranslate">
-              {displayLot.address}
+              {localizedAddress}
             </p>
             <div style={styles.statusRow}>
               <StatusChip
@@ -138,7 +135,14 @@ export default function ParkingDetailSheet({ lot, open, onClose }: ParkingDetail
         </div>
 
         <div style={styles.footer}>
-          <button type="button" style={styles.navButton} onClick={() => openKakaoNavigation(displayLot)}>
+          <button
+            type="button"
+            className="primary-cta"
+            style={styles.navButton}
+            onClick={() =>
+              startNavigation({ name: displayLot.name, lat: displayLot.lat, lng: displayLot.lng })
+            }
+          >
             {t.navigateButton}
           </button>
         </div>
@@ -163,7 +167,9 @@ const styles: Record<string, CSSProperties> = {
     display: "flex",
     justifyContent: "center",
     alignItems: "flex-end",
-    background: "rgba(12, 26, 23, 0.45)",
+    background: "rgba(0, 0, 0, 0.5)",
+    backdropFilter: "blur(3px)",
+    WebkitBackdropFilter: "blur(3px)",
     transition: "opacity 0.28s ease",
     zIndex: 20,
   },
@@ -175,16 +181,16 @@ const styles: Record<string, CSSProperties> = {
     display: "flex",
     flexDirection: "column",
     background: "var(--surface)",
-    borderRadius: "var(--radius-lg) var(--radius-lg) 0 0",
-    boxShadow: "0 -12px 32px rgba(12, 26, 23, 0.2)",
+    borderRadius: "var(--radius-xl) var(--radius-xl) 0 0",
+    boxShadow: "var(--shadow-lg)",
     transition: "transform 0.32s cubic-bezier(0.32, 0.72, 0, 1)",
   },
   grabber: {
-    width: 36,
-    height: 4,
+    width: 44,
+    height: 5,
     borderRadius: 999,
     background: "var(--border)",
-    margin: "10px auto 0",
+    margin: "12px auto 0",
     flexShrink: 0,
   },
   closeButton: {
@@ -324,19 +330,21 @@ const styles: Record<string, CSSProperties> = {
   },
   footer: {
     flexShrink: 0,
-    padding: "12px 20px calc(16px + env(safe-area-inset-bottom, 0px))",
-    borderTop: "1px solid var(--border-soft)",
+    padding: "14px 20px calc(18px + env(safe-area-inset-bottom, 0px))",
+    boxShadow: "0 -8px 20px rgba(0, 0, 0, 0.06)",
     background: "var(--surface)",
+    zIndex: 1,
   },
   navButton: {
     width: "100%",
-    padding: "14px 16px",
+    padding: "16px 16px",
     borderRadius: "var(--radius-md)",
     border: "none",
     background: "var(--accent)",
     color: "#fff",
-    fontWeight: 700,
-    fontSize: 15,
+    fontWeight: 800,
+    fontSize: 16,
     cursor: "pointer",
+    boxShadow: "0 10px 24px rgba(var(--accent-rgb), 0.4)",
   },
 };

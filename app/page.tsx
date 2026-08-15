@@ -1,11 +1,14 @@
 "use client";
 
-import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
+import KakaoMap, { type KakaoMapMarker } from "./components/KakaoMap";
 import MapLegend from "./components/MapLegend";
 import ParkingCard from "./components/ParkingCard";
+import ParkingCardSkeleton from "./components/ParkingCardSkeleton";
 import ParkingDetailSheet from "./components/ParkingDetailSheet";
+import ParkingSummaryCard from "./components/ParkingSummaryCard";
 import SettingsModal from "./components/SettingsModal";
-import type { LatLng } from "./lib/geo";
+import type { LatLng, RegionLabel } from "./lib/geo";
 import {
   loadKakaoMapsSdk,
   resolveDaegyeongSearch,
@@ -14,9 +17,13 @@ import {
   type PlaceSuggestion,
 } from "./lib/kakao";
 import type { Dictionary } from "./lib/i18n";
+import { formatMarkerLabel, formatRegionLabel, getLocalizedParkingName, statusColor } from "./lib/format";
 import { useFavorites } from "./lib/favorites";
+import { CATEGORY_FILTER_KEYS, matchesCategoryFilter, type CategoryFilterKey } from "./lib/parkingFilters";
 import { useSettings } from "./lib/settings";
 import type { ParkingLot } from "./lib/types";
+
+type ViewMode = "map" | "list";
 
 // GeolocationPositionError 코드(1=권한 거부, 2=위치 확인 불가, 3=타임아웃)를 현재
 // 언어에 맞는 안내 문구로 바꾼다.
@@ -43,7 +50,7 @@ const DAEGU_CENTER = { lat: 35.8714, lng: 128.6014 };
 // 좌하단(lng,lat), 우상단(lng,lat) — 남쪽 가창면부터 북쪽 군위군, 서쪽 달성군
 // 외곽부터 동쪽 팔공산 자락까지 여유 있게 포함한다.
 const DAEGU_SEARCH_RECT = "128.25,35.60,128.85,36.35";
-const NEAREST_COUNT = 5; // 앱 진입 즉시 보여줄 카드 수(4~5곳 권장 범위)
+const NEAREST_COUNT = 5; // 앱 진입 즉시 보여줄 카드/마커 수(4~5곳 권장 범위)
 
 // 입력값과 이름이 정확히 같은 결과만 "그 장소"로 확정한다. "해운대"처럼 부분
 // 일치("해운대물총칼국수" 등)만 있는 경우는 관련도가 아무리 높아도 자동으로
@@ -64,9 +71,11 @@ function dedupeById<T extends { id: string }>(items: T[]): T[] {
 }
 
 export default function Home() {
-  const { t, radiusM } = useSettings();
+  const { t, locale, radiusM } = useSettings();
   const { isFavorite } = useFavorites();
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
+  const [activeFilter, setActiveFilter] = useState<CategoryFilterKey>("all");
+  const [viewMode, setViewMode] = useState<ViewMode>("map");
   const [query, setQuery] = useState("");
   const [suggestions, setSuggestions] = useState<PlaceSuggestion[]>([]);
   const [suggestionsOpen, setSuggestionsOpen] = useState(false);
@@ -74,7 +83,11 @@ export default function Home() {
 
   const [kakaoReady, setKakaoReady] = useState(false);
   const [myLocation, setMyLocation] = useState<LatLng | null>(null);
-  const [myLocationLabel, setMyLocationLabel] = useState<string | null>(null);
+  // 역지오코딩으로 얻은 원본 행정구역 계층(시/도·구·동). 화면 표시 시 locale이
+  // 'en'이면 formatRegionLabel로 영문 변환해 보여준다(원본은 그대로 유지해
+  // 재지오코딩 없이 언어 전환에 즉시 반응하게 한다).
+  const [myLocationRegion, setMyLocationRegion] = useState<RegionLabel | null>(null);
+  const [myLocationRegionFailed, setMyLocationRegionFailed] = useState(false);
   const [locationError, setLocationError] = useState("");
   const hasLoadedOnceRef = useRef(false);
 
@@ -114,7 +127,11 @@ export default function Home() {
   const [detailOpen, setDetailOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const selectedLot = nearestLots.find((l) => l.id === selectedLotId) ?? null;
-  const displayedLots = showFavoritesOnly ? nearestLots.filter((lot) => isFavorite(lot.id)) : nearestLots;
+  // 즐겨찾기만 보기 + 조건 필터는 검색으로 이미 좁혀진 nearestLots 위에 AND로 겹쳐 적용된다.
+  // 지도 마커와 리스트 카드가 항상 같은 결과를 보여주도록 이 필터링된 목록을 함께 쓴다.
+  const displayedLots = nearestLots
+    .filter((lot) => !showFavoritesOnly || isFavorite(lot.id))
+    .filter((lot) => matchesCategoryFilter(lot, activeFilter));
 
   // 대경권 공영주차장 전체(공공데이터포털) 중 기준 좌표에서 가장 가까운 곳들을 서버 API로 조회한다.
   async function loadNearestLots(coords: LatLng | null) {
@@ -132,7 +149,11 @@ export default function Home() {
       const data = await res.json();
       if (requestIdRef.current !== requestId) return; // 이후 요청이 이미 새로 시작됐으면 무시
       if (!res.ok) throw new Error(data?.error ?? t.resultsLoadFailed);
-      setNearestLots(dedupeById(data.lots ?? []));
+      const deduped = dedupeById<ParkingLot>(data.lots ?? []);
+      setNearestLots(deduped);
+      // 지도 첫 진입/재검색 시 가장 가까운 곳을 자동 선택해 하단 요약 카드를 바로 보여준다.
+      // 기존 선택이 새 목록에도 있으면(반경만 바뀐 재조회 등) 그대로 유지한다.
+      setSelectedLotId((prev) => (prev && deduped.some((l) => l.id === prev) ? prev : (deduped[0]?.id ?? null)));
     } catch (err) {
       if (requestIdRef.current !== requestId) return;
       setResultsError(err instanceof Error ? err.message : t.resultsLoadFailed);
@@ -151,7 +172,8 @@ export default function Home() {
       (position) => {
         const coords = { lat: position.coords.latitude, lng: position.coords.longitude };
         setMyLocation(coords);
-        setMyLocationLabel(null);
+        setMyLocationRegion(null);
+        setMyLocationRegionFailed(false);
         setSearchLabel(null);
         setSearchCoords(coords);
         loadNearestLots(coords);
@@ -217,7 +239,9 @@ export default function Home() {
     if (!kakaoReady || !myLocation) return;
     let cancelled = false;
     reverseGeocode(myLocation).then((label) => {
-      if (!cancelled) setMyLocationLabel(label ?? t.locationLabelUnresolved);
+      if (cancelled) return;
+      setMyLocationRegion(label);
+      setMyLocationRegionFailed(!label);
     });
     return () => {
       cancelled = true;
@@ -332,16 +356,37 @@ export default function Home() {
     setDetailOpen(false);
   }
 
+  // 영문 모드에서는 역지오코딩 원본(구조화된 시/도·구·동)을 매번 formatRegionLabel로
+  // 변환해 보여준다 — 재지오코딩 없이 언어 전환에 즉시 반응한다.
+  const myLocationLabel = myLocationRegion
+    ? formatRegionLabel(myLocationRegion, locale)
+    : myLocationRegionFailed
+      ? t.locationLabelUnresolved
+      : null;
+
   const locationChipText = locationError
     ? t.locationRetryHint(locationError)
     : !myLocation
       ? t.locationChecking
       : t.locationLabel(myLocationLabel ?? t.locationResolvingLabel);
 
-  return (
-    <main style={styles.shell}>
-      <div style={styles.appFrame}>
-        <header style={styles.appBar}>
+  const mapCenter = searchCoords ?? DAEGU_CENTER;
+  const markers: KakaoMapMarker[] = displayedLots.map((lot) => ({
+    id: lot.id,
+    lat: lot.lat,
+    lng: lot.lng,
+    color: statusColor(lot.realtimeSupported, lot.congestion),
+    content: formatMarkerLabel(lot, locale),
+    label: getLocalizedParkingName(lot.name, locale),
+    selected: lot.id === selectedLotId,
+  }));
+
+  // 검색/필터/즐겨찾기 등 위쪽 컨트롤 묶음 — 지도 모드에서는 글래스 오버레이로,
+  // 리스트 모드에서는 일반 헤더로 감싸 쓰기 때문에 렌더링 자체를 함수로 공유한다.
+  function renderControls(): ReactNode {
+    return (
+      <>
+        <div style={styles.appBarRow}>
           <span style={styles.brandMark}>P</span>
           <div style={styles.appBarTitle} translate="no" className="notranslate">
             {searchLabel ? t.nearbyTitle(searchLabel) : t.appTitle}
@@ -354,119 +399,179 @@ export default function Home() {
           >
             ⚙️
           </button>
-        </header>
+        </div>
 
-        <section style={styles.screenBody}>
-          <div style={styles.searchWrap}>
-            <form style={styles.searchBar} onSubmit={handleSearchSubmit}>
-              <span style={styles.searchIcon} aria-hidden>
-                🔍
-              </span>
-              <input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                onFocus={() => setSuggestionsOpen(true)}
-                onBlur={() => window.setTimeout(() => setSuggestionsOpen(false), 120)}
-                placeholder={t.searchPlaceholder}
-                style={styles.searchInput}
-                autoComplete="off"
-              />
-            </form>
+        <div style={styles.searchWrap}>
+          <form style={styles.searchBar} onSubmit={handleSearchSubmit}>
+            <span style={styles.searchIcon} aria-hidden>
+              🔍
+            </span>
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onFocus={() => setSuggestionsOpen(true)}
+              onBlur={() => window.setTimeout(() => setSuggestionsOpen(false), 120)}
+              placeholder={t.searchPlaceholder}
+              style={styles.searchInput}
+              autoComplete="off"
+            />
+          </form>
 
-            {suggestionsOpen && suggestions.length > 0 && (
-              <ul style={styles.suggestionList}>
-                {suggestions.map((place) => {
-                  const distanceM = place.distanceM;
-                  return (
-                    <li key={place.id}>
-                      <button
-                        type="button"
-                        style={styles.suggestionItem}
-                        onMouseDown={(e) => e.preventDefault()}
-                        onClick={() => selectPlace(place)}
-                      >
-                        <div style={styles.suggestionTopRow} translate="no" className="notranslate">
-                          <span style={styles.suggestionName}>{place.name}</span>
-                          {distanceM != null && distanceM > 0 && (
-                            <span style={styles.suggestionDistance}>
-                              {distanceM < 1000 ? `${distanceM}m` : `${(distanceM / 1000).toFixed(1)}km`}
-                            </span>
-                          )}
-                        </div>
-                        <span style={styles.suggestionAddress} translate="no" className="notranslate">
-                          {place.address}
-                        </span>
-                        {place.category && (
-                          <span style={styles.suggestionCategory} translate="no" className="notranslate">
-                            {place.category}
+          {suggestionsOpen && suggestions.length > 0 && (
+            <ul style={styles.suggestionList}>
+              {suggestions.map((place) => {
+                const distanceM = place.distanceM;
+                return (
+                  <li key={place.id}>
+                    <button
+                      type="button"
+                      style={styles.suggestionItem}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => selectPlace(place)}
+                    >
+                      <div style={styles.suggestionTopRow} translate="no" className="notranslate">
+                        <span style={styles.suggestionName}>{place.name}</span>
+                        {distanceM != null && distanceM > 0 && (
+                          <span style={styles.suggestionDistance}>
+                            {distanceM < 1000 ? `${distanceM}m` : `${(distanceM / 1000).toFixed(1)}km`}
                           </span>
                         )}
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </div>
+                      </div>
+                      <span style={styles.suggestionAddress} translate="no" className="notranslate">
+                        {place.address}
+                      </span>
+                      {place.category && (
+                        <span style={styles.suggestionCategory} translate="no" className="notranslate">
+                          {place.category}
+                        </span>
+                      )}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
 
-          <div style={styles.chipRow}>
+        <div style={styles.filterChipRow}>
+          {CATEGORY_FILTER_KEYS.map((key) => (
             <button
-              type="button"
-              style={styles.locationChip}
-              onClick={requestCurrentLocation}
-              translate="no"
-              className="notranslate"
-            >
-              📍 {locationChipText}
-            </button>
-            <button
+              key={key}
               type="button"
               style={{
-                ...styles.favoritesOnlyChip,
-                ...(showFavoritesOnly ? styles.favoritesOnlyChipActive : null),
+                ...styles.filterChip,
+                ...(activeFilter === key ? styles.filterChipActive : null),
               }}
-              onClick={() => setShowFavoritesOnly((prev) => !prev)}
-              aria-pressed={showFavoritesOnly}
+              onClick={() => setActiveFilter(key)}
+              aria-pressed={activeFilter === key}
             >
-              {showFavoritesOnly ? "❤️" : "🤍"} {t.favoritesOnlyLabel}
+              {t.categoryFilterLabel[key]}
+            </button>
+          ))}
+        </div>
+
+        <div style={styles.chipRow}>
+          <button
+            type="button"
+            style={styles.locationChip}
+            onClick={requestCurrentLocation}
+            translate="no"
+            className="notranslate"
+          >
+            📍 {locationChipText}
+          </button>
+          <button
+            type="button"
+            style={{
+              ...styles.favoritesOnlyChip,
+              ...(showFavoritesOnly ? styles.favoritesOnlyChipActive : null),
+            }}
+            onClick={() => setShowFavoritesOnly((prev) => !prev)}
+            aria-pressed={showFavoritesOnly}
+          >
+            {showFavoritesOnly ? "❤️" : "🤍"} {t.favoritesOnlyLabel}
+          </button>
+        </div>
+
+        {searchLabel && (
+          <div style={styles.contextRow}>
+            <span style={styles.contextLabel} translate="no" className="notranslate">
+              {t.nearbyContext(searchLabel)}
+            </span>
+            <button type="button" style={styles.contextReset} onClick={resetToCurrentLocation}>
+              {t.resetToCurrentLocation}
             </button>
           </div>
+        )}
 
-          {searchLabel && (
-            <div style={styles.contextRow}>
-              <span style={styles.contextLabel} translate="no" className="notranslate">
-                {t.nearbyContext(searchLabel)}
-              </span>
-              <button type="button" style={styles.contextReset} onClick={resetToCurrentLocation}>
-                {t.resetToCurrentLocation}
-              </button>
-            </div>
-          )}
+        <MapLegend />
 
-          <MapLegend />
+        {resultsError && <p style={styles.resultsErrorText}>{resultsError}</p>}
+      </>
+    );
+  }
 
-          {resultsError && <p style={styles.resultsErrorText}>{resultsError}</p>}
+  const fabBottom = viewMode === "map" && selectedLot ? 152 : 20;
 
-          <div style={styles.list}>
-            {displayedLots.map((lot, index) => (
-              <ParkingCard key={`${lot.id}-${index}`} lot={lot} onSelect={openDetail} />
-            ))}
-            {!isLoadingLots && displayedLots.length === 0 && !resultsError && (
-              <p style={styles.emptyText}>
-                {showFavoritesOnly ? t.favoritesEmptyText : t.emptyResults}
-              </p>
+  return (
+    <main style={styles.shell}>
+      <div style={styles.appFrame}>
+        <div style={styles.mapLayer}>
+          <KakaoMap
+            center={mapCenter}
+            level={radiusM <= 500 ? 4 : 5}
+            fill
+            markers={markers}
+            onMarkerClick={setSelectedLotId}
+            currentLocation={myLocation}
+            destination={searchLabel ? searchCoords : null}
+          />
+        </div>
+
+        {viewMode === "map" ? (
+          <>
+            <div style={styles.overlayControls}>{renderControls()}</div>
+            {selectedLot && (
+              <ParkingSummaryCard
+                lot={selectedLot}
+                onOpenDetail={() => setDetailOpen(true)}
+                onClose={() => setSelectedLotId(null)}
+              />
             )}
-          </div>
-        </section>
-
-        {isLoadingLots && (
-          <div style={styles.loadingWrap}>
-            <div style={styles.loadingCard}>
-              <span style={styles.spinner} />
-              <span>{t.loadingResults}</span>
+          </>
+        ) : (
+          <div style={styles.listPanel}>
+            <div style={styles.listPanelHeader}>{renderControls()}</div>
+            <div style={styles.listScroll}>
+              {isLoadingLots ? (
+                Array.from({ length: NEAREST_COUNT }).map((_, index) => <ParkingCardSkeleton key={index} />)
+              ) : (
+                <>
+                  {displayedLots.map((lot, index) => (
+                    <ParkingCard key={`${lot.id}-${index}`} lot={lot} onSelect={openDetail} />
+                  ))}
+                  {displayedLots.length === 0 && !resultsError && (
+                    <p style={styles.emptyText}>
+                      {showFavoritesOnly
+                        ? t.favoritesEmptyText
+                        : activeFilter !== "all"
+                          ? t.filterEmptyText
+                          : t.emptyResults}
+                    </p>
+                  )}
+                </>
+              )}
             </div>
           </div>
         )}
+
+        <button
+          type="button"
+          style={{ ...styles.fab, bottom: fabBottom }}
+          onClick={() => setViewMode((v) => (v === "map" ? "list" : "map"))}
+        >
+          {viewMode === "map" ? `☰ ${t.listViewLabel}` : `🗺️ ${t.mapViewLabel}`}
+        </button>
 
         {regionToast && (
           <div style={styles.regionToastWrap}>
@@ -491,31 +596,67 @@ export default function Home() {
 
 const styles: Record<string, CSSProperties> = {
   shell: {
-    minHeight: "100vh",
+    position: "fixed",
+    inset: 0,
     display: "flex",
     justifyContent: "center",
-    padding: "0",
   },
   appFrame: {
     position: "relative",
     width: "100%",
     maxWidth: 460,
-    minHeight: "100vh",
+    height: "100%",
+    background: "var(--surface)",
+    overflow: "hidden",
+    boxShadow: "0 0 40px rgba(0, 0, 0, 0.06)",
+  },
+  mapLayer: {
+    position: "absolute",
+    inset: 0,
+  },
+  overlayControls: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 6,
+    background: "var(--glass-bg)",
+    backdropFilter: "blur(18px) saturate(180%)",
+    WebkitBackdropFilter: "blur(18px) saturate(180%)",
+    borderBottom: "1px solid var(--glass-border)",
+    padding: "16px 18px 12px",
+    display: "flex",
+    flexDirection: "column",
+    gap: 10,
+  },
+  listPanel: {
+    position: "absolute",
+    inset: 0,
+    zIndex: 4,
     background: "var(--surface)",
     display: "flex",
     flexDirection: "column",
-    boxShadow: "0 0 40px rgba(12, 26, 23, 0.06)",
   },
-  appBar: {
+  listPanelHeader: {
+    flexShrink: 0,
+    padding: "16px 18px 12px",
+    borderBottom: "1px solid var(--border-soft)",
+    display: "flex",
+    flexDirection: "column",
+    gap: 10,
+  },
+  listScroll: {
+    flex: 1,
+    overflowY: "auto",
+    padding: "14px 18px 90px",
+    display: "flex",
+    flexDirection: "column",
+    gap: 10,
+  },
+  appBarRow: {
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
-    padding: "16px 18px",
-    borderBottom: "1px solid var(--border-soft)",
-    position: "sticky",
-    top: 0,
-    background: "var(--surface)",
-    zIndex: 5,
   },
   brandMark: {
     width: 30,
@@ -551,13 +692,6 @@ const styles: Record<string, CSSProperties> = {
     alignItems: "center",
     justifyContent: "center",
   },
-  screenBody: {
-    flex: 1,
-    padding: "14px 18px 32px",
-    display: "flex",
-    flexDirection: "column",
-    gap: 10,
-  },
   searchWrap: {
     position: "relative",
   },
@@ -582,7 +716,7 @@ const styles: Record<string, CSSProperties> = {
     background: "var(--surface)",
     border: "1px solid var(--border)",
     borderRadius: "var(--radius-md)",
-    boxShadow: "0 12px 28px rgba(12, 26, 23, 0.14)",
+    boxShadow: "0 12px 28px rgba(0, 0, 0, 0.14)",
     maxHeight: 280,
     overflowY: "auto",
   },
@@ -646,6 +780,33 @@ const styles: Record<string, CSSProperties> = {
     fontSize: 14.5,
     color: "var(--text)",
   },
+  filterChipRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    overflowX: "auto",
+    paddingBottom: 2,
+  },
+  filterChip: {
+    flexShrink: 0,
+    padding: "7px 14px",
+    borderRadius: 999,
+    border: "1px solid var(--border)",
+    background: "var(--surface-alt)",
+    color: "var(--filter-chip-text)",
+    fontWeight: 600,
+    fontSize: 12.5,
+    cursor: "pointer",
+    whiteSpace: "nowrap",
+    transition: "background 0.2s ease, color 0.2s ease, border-color 0.2s ease, transform 0.15s ease, box-shadow 0.2s ease",
+  },
+  filterChipActive: {
+    border: "1px solid var(--accent)",
+    background: "var(--accent)",
+    color: "#fff",
+    transform: "scale(1.04)",
+    boxShadow: "0 6px 16px rgba(var(--accent-rgb), 0.35)",
+  },
   chipRow: {
     display: "flex",
     alignItems: "center",
@@ -679,6 +840,7 @@ const styles: Record<string, CSSProperties> = {
     fontWeight: 600,
     fontSize: 12,
     cursor: "pointer",
+    transition: "background 0.2s ease, color 0.2s ease, border-color 0.2s ease, transform 0.15s ease",
   },
   favoritesOnlyChipActive: {
     border: "1px solid var(--accent-line)",
@@ -714,38 +876,29 @@ const styles: Record<string, CSSProperties> = {
     color: "var(--danger)",
     fontWeight: 600,
   },
-  list: {
-    display: "flex",
-    flexDirection: "column",
-    gap: 10,
-    marginTop: 2,
-  },
   emptyText: {
     margin: "8px 0",
     fontSize: 13,
     color: "var(--text-faint)",
     textAlign: "center",
   },
-  loadingWrap: {
-    position: "fixed",
-    inset: 0,
-    display: "flex",
+  fab: {
+    position: "absolute",
+    right: 18,
+    zIndex: 8,
+    display: "inline-flex",
     alignItems: "center",
-    justifyContent: "center",
-    pointerEvents: "none",
-    zIndex: 15,
-  },
-  loadingCard: {
-    display: "flex",
-    alignItems: "center",
-    gap: 10,
-    background: "var(--surface)",
+    gap: 6,
+    padding: "12px 18px",
     borderRadius: 999,
-    padding: "12px 20px",
+    border: "1px solid var(--border)",
+    background: "var(--surface)",
+    color: "var(--text)",
+    fontWeight: 800,
     fontSize: 13.5,
-    fontWeight: 600,
-    color: "var(--text-dim)",
-    boxShadow: "0 12px 28px rgba(12, 26, 23, 0.18)",
+    cursor: "pointer",
+    boxShadow: "var(--shadow-lg)",
+    transition: "bottom 0.2s ease",
   },
   regionToastWrap: {
     position: "fixed",
@@ -768,15 +921,7 @@ const styles: Record<string, CSSProperties> = {
     fontSize: 13,
     fontWeight: 600,
     textAlign: "center",
-    boxShadow: "0 12px 28px rgba(12, 26, 23, 0.18)",
+    boxShadow: "0 12px 28px rgba(0, 0, 0, 0.18)",
     transition: "opacity 0.25s ease, transform 0.25s ease",
-  },
-  spinner: {
-    width: 14,
-    height: 14,
-    borderRadius: "50%",
-    border: "2px solid var(--border)",
-    borderTopColor: "var(--accent)",
-    animation: "spin 0.7s linear infinite",
   },
 };

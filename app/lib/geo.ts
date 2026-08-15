@@ -3,6 +3,15 @@ export interface LatLng {
   lng: number;
 }
 
+// kakao.ts의 reverseGeocode가 돌려주는 행정구역 계층(시/도, 시/군/구, 읍/면/동).
+// 영문 표기는 계층별로 로마자 접미사 규칙이 달라(format.ts의 formatRegionLabel),
+// 미리 합친 문자열이 아니라 이 구조 그대로 넘겨받아야 한다.
+export interface RegionLabel {
+  sido: string;
+  gu: string | null;
+  dong: string | null;
+}
+
 // 두 좌표 사이의 실제 거리를 하버사인 공식으로 계산한다(단위: m).
 export function haversineDistanceM(a: LatLng, b: LatLng): number {
   const R = 6371000;

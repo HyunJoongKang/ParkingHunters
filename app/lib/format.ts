@@ -1,5 +1,6 @@
+import type { RegionLabel } from "./geo";
 import { getDictionary, type Locale } from "./i18n";
-import type { Congestion, ParkingFee } from "./types";
+import type { Congestion, ParkingFee, ParkingLot } from "./types";
 
 export const CONGESTION_COLOR: Record<Congestion, string> = {
   available: "#1fa971",
@@ -16,6 +17,21 @@ export function statusColor(realtimeSupported: boolean, congestion: Congestion):
 
 export function congestionLabel(congestion: Congestion, locale: Locale = "ko"): string {
   return getDictionary(locale).congestionLabel[congestion];
+}
+
+// 실시간 소스가 순간적으로 totalSpots보다 큰 값(예: 46/40)이나 음수를 내려보내는
+// 경우가 있어, 화면에 보이기 전에 [0, totalSpots] 범위로 방어적으로 잘라낸다.
+export function clampAvailableSpots(available: number, total: number): number {
+  return Math.min(Math.max(available, 0), total);
+}
+
+// 보정된 잔여 면수가 총 면수와 같으면(=완전히 비어 있음) 반드시 "여유"로, 0이면
+// 반드시 "만차"로 강제해 상태 태그가 숫자와 모순되지 않게 한다. 그 사이 구간은
+// 대구시 실시간 API가 이미 분류해 내려주는 혼잡도 문구를 그대로 신뢰한다.
+export function resolveCongestion(available: number, total: number, apiCongestion: Congestion): Congestion {
+  if (total > 0 && available >= total) return "available";
+  if (available <= 0) return "full";
+  return apiCongestion;
 }
 
 export function statusLabel(
@@ -77,6 +93,25 @@ export function formatSyncedAgo(minutes: number | null, locale: Locale = "ko"): 
   if (minutes === null) return t.syncedUnsupported;
   if (minutes === 0) return t.syncedJustNow;
   return t.syncedMinutesAgo(minutes);
+}
+
+// parkingApi.ts의 normalizeName/normalizeDaeguName이 민영 주차장 이름 끝에는 항상
+// "(민영)"을 붙이므로(공영은 그런 고정 접미사가 없을 수 있어 반대로는 판별 불가),
+// 이 표시만으로 공영/민영 배지를 가른다.
+export function isPrivateLot(name: string): boolean {
+  return name.includes("민영");
+}
+
+// 지도 마커에 표시할 짧은 텍스트 — 실시간 정보가 있으면 혼잡도+잔여 면수를,
+// 없으면(="정보없음", 회색 마커) 요금(무료/금액)을 보여준다.
+export function formatMarkerLabel(lot: ParkingLot, locale: Locale = "ko"): string {
+  const t = getDictionary(locale);
+  if (lot.realtimeSupported && lot.availableSpots != null) {
+    return `${t.congestionLabel[lot.congestion]} ${lot.availableSpots}${t.spotsUnit}`;
+  }
+  if (lot.fee.baseFee === 0) return t.badgeFree;
+  const amount = lot.fee.baseFee.toLocaleString();
+  return locale === "en" ? `₩${amount}` : `${amount}원`;
 }
 
 // ---- 한글 → 로마자(개정 로마자 표기법 근사) ----
@@ -176,7 +211,7 @@ function romanizeHangulRun(run: string): string {
 
 // 임의 텍스트를 순회하며 한글 음절 구간만 로마자로 바꾸고, 공백·숫자·괄호·영문
 // 등 그 외 문자는 그대로 둔다.
-function transliterateHangul(text: string): string {
+export function transliterateHangul(text: string): string {
   let result = "";
   let i = 0;
   while (i < text.length) {
@@ -259,4 +294,69 @@ export function getLocalizedParkingName(name: string, locale: Locale = "ko"): st
   }
 
   return transliterateHangul(name);
+}
+
+// 주차장 주소(도로명/지번)는 별도 영문 표기 없이 원본 문자열 그대로 내려오므로,
+// 영문 모드에서는 한글 구간만 로마자로 바꿔 화면에 한글이 남지 않게 한다.
+// 이상적인 표기 규칙(예: "동인동1가" -> "Dongin-dong 1-ga")까지는 아니어도,
+// transliterateHangul이 한글이 아닌 문자(숫자·기호)는 그대로 두므로 완전한
+// 로마자 문자열이 된다.
+export function getLocalizedAddress(address: string, locale: Locale = "ko"): string {
+  return locale === "en" ? transliterateHangul(address) : address;
+}
+
+// depth-1(시/도) 지역명 — kakao.ts의 reverseGeocode가 이미 광역시/특별시 등 접미사를
+// 제거해 넘겨준다("대구", "서울"). "도"만 남아있는 경우("경상북도")에만 "-do"를
+// 붙인다. depth-2/3과 같은 표로 처리하면 "대구"가 "대"+"구(-gu)"로 잘못 갈라져
+// "Dae-gu"가 되는 문제가 있어(고유명사 끝 글자가 우연히 구/동 등과 같음), 전용
+// 규칙으로 분리했다.
+function romanizeSido(sido: string): string {
+  if (sido.length > 1 && sido.endsWith("도")) {
+    return `${transliterateHangul(sido.slice(0, -1))}-do`;
+  }
+  return transliterateHangul(sido);
+}
+
+// depth-2(시/군/구), depth-3(읍/면/동/리/가) 공통 로마자 접미사 규칙.
+const SUB_ADMIN_SUFFIXES: Array<[string, string]> = [
+  ["시", "-si"],
+  ["군", "-gun"],
+  ["구", "-gu"],
+  ["읍", "-eup"],
+  ["면", "-myeon"],
+  ["동", "-dong"],
+  ["리", "-ri"],
+  ["가", "-ga"],
+];
+
+function romanizeSubAdminUnit(word: string): string {
+  for (const [ko, romanSuffix] of SUB_ADMIN_SUFFIXES) {
+    if (!word.endsWith(ko) || word.length <= ko.length) continue;
+    const stem = word.slice(0, -ko.length);
+    // "고산1동"처럼 단위명 앞에 숫자가 붙은 경우 숫자 앞부분만 로마자화하고
+    // 숫자와 접미사는 그대로 이어 붙인다("Gosan 1-dong").
+    const match = stem.match(/^(.*?)(\d+)$/);
+    if (match) {
+      return `${transliterateHangul(match[1])} ${match[2]}${romanSuffix}`;
+    }
+    return `${transliterateHangul(stem)}${romanSuffix}`;
+  }
+  return transliterateHangul(word);
+}
+
+// kakao.ts의 reverseGeocode가 돌려주는 행정구역 계층을 화면 표기 문자열로 합친다.
+// 한글 모드는 기존처럼 큰 단위 -> 작은 단위("대구 수성구 고산1동"), 영문 모드는
+// 로마자 접미사를 붙이고 영어 어순(작은 단위 -> 큰 단위)으로 재배열한다.
+// 예(en): "Gosan 1-dong, Suseong-gu, Daegu"
+export function formatRegionLabel(region: RegionLabel, locale: Locale = "ko"): string {
+  if (locale === "en") {
+    return [
+      region.dong ? romanizeSubAdminUnit(region.dong) : null,
+      region.gu ? romanizeSubAdminUnit(region.gu) : null,
+      romanizeSido(region.sido),
+    ]
+      .filter(Boolean)
+      .join(", ");
+  }
+  return [region.sido, region.gu, region.dong].filter(Boolean).join(" ");
 }
