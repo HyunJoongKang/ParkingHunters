@@ -11,7 +11,9 @@ const DEFAULT_DAEGU_INFO_ENDPOINT = "https://pis.daegu.go.kr/api/serviceApply/pr
 const DEFAULT_DAEGU_CONGESTION_ENDPOINT = "https://pis.daegu.go.kr/api/serviceApply/rltmPrkInfo";
 const PAGE_SIZE = 1000;
 // 대구 구간은 실시간 혼잡도를 포함하므로 표준데이터보다 훨씬 짧은 주기로 갱신한다.
-const CACHE_TTL_MS = 2 * 60 * 1000;
+// (5분 = 300초 — Next.js의 next.revalidate와 같은 의미의 캐시 주기를 이 앱 자체 캐시로
+// 구현한다. 아래 fetchDaeguJson 설명 참고.)
+const CACHE_TTL_MS = 5 * 60 * 1000;
 
 interface RawParkingItem {
   prkplceNo: string;
@@ -230,6 +232,11 @@ function mapDaeguItem(
 // http.Agent 기반 프록시(https-proxy-agent)를 정식으로 지원하는 node-fetch를 쓴다.
 const daeguProxyAgent = process.env.FIXIE_URL ? new HttpsProxyAgent(process.env.FIXIE_URL) : undefined;
 
+// 캐시 주기(5분): Next.js의 fetch 옵션인 next: { revalidate: 300 }은 여기서 쓸 수 없다 —
+// 그 캐시는 Next.js가 패치한 전역 fetch()에만 걸리고, node-fetch(위 daeguProxyAgent 주석
+// 참고 — 프록시 agent 옵션 때문에 이걸 쓴다)에는 그런 훅 자체가 없어 조용히 무시된다.
+// 대신 getCachedLots()의 CACHE_TTL_MS(5 * 60 * 1000)가 이 호출들을 감싸 같은 효과(5분에
+// 한 번만 대구시 API를 실제로 호출)를 낸다.
 async function fetchDaeguJson<T>(endpoint: string, key: string, label: string): Promise<T[]> {
   const res = await nodeFetch(endpoint, {
     headers: {
