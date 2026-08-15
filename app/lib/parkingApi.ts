@@ -1,3 +1,5 @@
+import { HttpsProxyAgent } from "https-proxy-agent";
+import nodeFetch from "node-fetch";
 import { haversineDistanceM, type LatLng } from "./geo";
 import { clampAvailableSpots, resolveCongestion } from "./format";
 import type { ParkingLot } from "./types";
@@ -217,17 +219,31 @@ function mapDaeguItem(
   };
 }
 
+// 대구시 실시간 API는 신청 시 등록한 고정 IP만 허용하는 화이트리스트 방식이라,
+// Vercel 서버리스 환경의 매 요청마다 바뀌는 아웃바운드 IP로는 인증이 거부된다
+// (HTTP 401). FIXIE_URL(Fixie 등 고정 IP 프록시 URL)이 설정돼 있으면 이 호출만
+// 그 프록시를 거쳐 나가 항상 같은 고정 IP로 보이게 한다.
+//
+// 전역 fetch()(undici 기반)는 프록시 연결에 쓰는 dispatcher/agent 옵션을 안정적으로
+// 지원하지 않는다 — Next.js가 자체 fetch 패치를 씌워 dispatcher가 씹히는 사례가
+// 보고돼 있다(https://github.com/vercel/next.js/discussions/81916). 그래서 이 호출은
+// http.Agent 기반 프록시(https-proxy-agent)를 정식으로 지원하는 node-fetch를 쓴다.
+const daeguProxyAgent = process.env.FIXIE_URL ? new HttpsProxyAgent(process.env.FIXIE_URL) : undefined;
+
 async function fetchDaeguJson<T>(endpoint: string, key: string, label: string): Promise<T[]> {
-  const res = await fetch(endpoint, {
+  const res = await nodeFetch(endpoint, {
     headers: {
       accept: "application/json;charset=UTF-8",
       Authentication: key,
     },
+    agent: daeguProxyAgent,
   });
   if (!res.ok) {
     throw new Error(`${label} API 요청 실패 (HTTP ${res.status})`);
   }
-  const json = await res.json();
+  // node-fetch의 json()은 unknown을 반환한다(네이티브 fetch는 any) — 이 API의
+  // 응답 형태를 강타입으로 정의해 두지 않은 기존 스타일을 그대로 유지한다.
+  const json = (await res.json()) as any;
   if (json?.resultCode !== "200") {
     throw new Error(`${label} API 오류: ${json?.message ?? "알 수 없는 오류"}`);
   }
