@@ -312,10 +312,15 @@ function mapDaeguItem(
   };
 }
 
-// 대구시 실시간 API는 신청 시 등록한 고정 IP만 허용하는 화이트리스트 방식이라,
-// Vercel 서버리스 환경의 매 요청마다 바뀌는 아웃바운드 IP로는 인증이 거부된다
-// (HTTP 401). FIXIE_URL(Fixie 등 고정 IP 프록시 URL)이 설정돼 있으면 이 호출만
-// 그 프록시를 거쳐 나가 항상 같은 고정 IP로 보이게 한다.
+// 대구시 API(기본정보/혼잡도 모두)는 신청 시 등록한 고정 IP만 허용하는 화이트리스트
+// 방식이라, Vercel 서버리스 환경의 매 요청마다 바뀌는 아웃바운드 IP로는 인증이
+// 거부된다(HTTP 401). FIXIE_URL(Fixie 등 고정 IP 프록시 URL)이 설정돼 있으면 두
+// 호출 모두 그 프록시를 거쳐 나가 항상 같은 고정 IP로 보이게 한다 — Vercel 기본
+// 유동 IP는 등록 자체가 불가능하므로(계속 바뀜), 프록시 없이는 절대 통과할 수 없다.
+//
+// 실제로 curl로 직접 확인한 결과: 이 프록시의 고정 IP(52.5.155.132)는 혼잡도뿐 아니라
+// 기본정보 API에도 아직 화이트리스트 등록이 안 돼 있어 401이 난다(대구시 쪽 조치 필요).
+// 그래서 앱이 먹통되지 않도록 DUMMY_DAEGU_PARKING_LOTS 폴백이 항상 필요하다.
 //
 // 전역 fetch()(undici 기반)는 프록시 연결에 쓰는 dispatcher/agent 옵션을 안정적으로
 // 지원하지 않는다 — Next.js가 자체 fetch 패치를 씌워 dispatcher가 씹히는 사례가
@@ -328,13 +333,18 @@ const daeguProxyAgent = process.env.FIXIE_URL ? new HttpsProxyAgent(process.env.
 // 참고 — 프록시 agent 옵션 때문에 이걸 쓴다)에는 그런 훅 자체가 없어 조용히 무시된다.
 // 대신 getCachedLots()의 CACHE_TTL_MS(5 * 60 * 1000)가 이 호출들을 감싸 같은 효과(5분에
 // 한 번만 대구시 API를 실제로 호출)를 낸다.
-async function fetchDaeguJson<T>(endpoint: string, key: string, label: string): Promise<T[]> {
+async function fetchDaeguJson<T>(
+  endpoint: string,
+  key: string,
+  label: string,
+  agent?: HttpsProxyAgent<string>
+): Promise<T[]> {
   const res = await nodeFetch(endpoint, {
     headers: {
       accept: "application/json;charset=UTF-8",
       Authentication: key,
     },
-    agent: daeguProxyAgent,
+    agent,
   });
   if (!res.ok) {
     throw new Error(`${label} API 요청 실패 (HTTP ${res.status})`);
@@ -365,7 +375,7 @@ async function loadDaeguCityParkingLots(): Promise<ParkingLot[]> {
 
   let infoItems: DaeguPrkInfoItem[];
   try {
-    infoItems = await fetchDaeguJson<DaeguPrkInfoItem>(infoEndpoint, infoKey, "주차장 기본정보");
+    infoItems = await fetchDaeguJson<DaeguPrkInfoItem>(infoEndpoint, infoKey, "주차장 기본정보", daeguProxyAgent);
   } catch (err) {
     console.warn(
       `[대구시 API] 기본정보 조회 실패 — 임시 주차장 목록으로 대체합니다: ${(err as Error).message}`
@@ -385,7 +395,8 @@ async function loadDaeguCityParkingLots(): Promise<ParkingLot[]> {
       congestionItems = await fetchDaeguJson<DaeguRltmPrkInfoItem>(
         congestionEndpoint,
         congestionKey,
-        "실시간 주차 혼잡도"
+        "실시간 주차 혼잡도",
+        daeguProxyAgent
       );
     } catch (err) {
       console.warn(
