@@ -79,6 +79,97 @@ interface DaeguRltmPrkInfoItem {
 
 let cache: { fetchedAt: number; lots: ParkingLot[] } | null = null;
 
+// 대구시 "주차장정보조회(기본정보)" API 키가 아직 승인 전이거나 일시적으로 401을 반환할 때,
+// 화면이 완전히 먹통(에러 페이지)이 되지 않도록 보여줄 최소한의 임시 목록. 실제 API가
+// 정상화되면 getCachedLots()가 다음 캐시 주기에 자동으로 실데이터로 교체한다.
+const DUMMY_DAEGU_PARKING_LOTS: ParkingLot[] = [
+  {
+    id: "dummy-daegu-001",
+    name: "동성로 공영주차장 (임시 데이터)",
+    address: "대구광역시 중구 동성로2가",
+    lat: 35.8703,
+    lng: 128.5911,
+    distanceM: 0,
+    totalSpots: 120,
+    availableSpots: null,
+    congestion: "moderate",
+    fee: { baseMin: 30, baseFee: 1000, addMin: 10, addFee: 500 },
+    hours: "24시간",
+    evSpots: 4,
+    disabledSpots: 3,
+    realtimeSupported: false,
+    lastSyncedMinutesAgo: null,
+  },
+  {
+    id: "dummy-daegu-002",
+    name: "반월당 공영주차장 (임시 데이터)",
+    address: "대구광역시 중구 남산동",
+    lat: 35.8656,
+    lng: 128.5875,
+    distanceM: 0,
+    totalSpots: 200,
+    availableSpots: null,
+    congestion: "moderate",
+    fee: { baseMin: 30, baseFee: 1200, addMin: 10, addFee: 600 },
+    hours: "06:00 ~ 24:00",
+    evSpots: 6,
+    disabledSpots: 4,
+    realtimeSupported: false,
+    lastSyncedMinutesAgo: null,
+  },
+  {
+    id: "dummy-daegu-003",
+    name: "대구역 공영주차장 (임시 데이터)",
+    address: "대구광역시 북구 태평로3가",
+    lat: 35.8765,
+    lng: 128.5939,
+    distanceM: 0,
+    totalSpots: 150,
+    availableSpots: null,
+    congestion: "moderate",
+    fee: { baseMin: 30, baseFee: 1000, addMin: 10, addFee: 500 },
+    hours: "24시간",
+    evSpots: 5,
+    disabledSpots: 3,
+    realtimeSupported: false,
+    lastSyncedMinutesAgo: null,
+  },
+  {
+    id: "dummy-daegu-004",
+    name: "김광석다시그리기길 주차장 (임시 데이터)",
+    address: "대구광역시 중구 대봉동",
+    lat: 35.8629,
+    lng: 128.6017,
+    distanceM: 0,
+    totalSpots: 80,
+    availableSpots: null,
+    congestion: "moderate",
+    fee: { baseMin: 0, baseFee: 0, addMin: 0, addFee: 0 },
+    hours: "24시간",
+    evSpots: 2,
+    disabledSpots: 2,
+    realtimeSupported: false,
+    lastSyncedMinutesAgo: null,
+  },
+  {
+    id: "dummy-daegu-005",
+    name: "수성못 공영주차장 (임시 데이터)",
+    address: "대구광역시 수성구 두산동",
+    lat: 35.8264,
+    lng: 128.6208,
+    distanceM: 0,
+    totalSpots: 100,
+    availableSpots: null,
+    congestion: "moderate",
+    fee: { baseMin: 30, baseFee: 500, addMin: 10, addFee: 300 },
+    hours: "24시간",
+    evSpots: 3,
+    disabledSpots: 2,
+    realtimeSupported: false,
+    lastSyncedMinutesAgo: null,
+  },
+];
+
 function mapFee(item: RawParkingItem) {
   const baseMin = Number(item.basicTime) || 0;
   if (item.parkingchrgeInfo !== "유료" || !item.basicCharge) {
@@ -261,15 +352,47 @@ async function fetchDaeguJson<T>(endpoint: string, key: string, label: string): 
 async function loadDaeguCityParkingLots(): Promise<ParkingLot[]> {
   const infoEndpoint = process.env.DAEGU_PARKING_INFO_ENDPOINT || DEFAULT_DAEGU_INFO_ENDPOINT;
   const infoKey = process.env.DAEGU_PARKING_INFO_KEY;
-  const congestionEndpoint = process.env.DAEGU_REALTIME_CONGESTION_ENDPOINT || DEFAULT_DAEGU_CONGESTION_ENDPOINT;
-  const congestionKey = process.env.DAEGU_REALTIME_CONGESTION_KEY;
-  if (!infoKey) throw new Error("DAEGU_PARKING_INFO_KEY가 설정되어 있지 않습니다.");
-  if (!congestionKey) throw new Error("DAEGU_REALTIME_CONGESTION_KEY가 설정되어 있지 않습니다.");
+  const congestionEndpoint = process.env.DAEGU_PARKING_CONGESTION_ENDPOINT || DEFAULT_DAEGU_CONGESTION_ENDPOINT;
+  const congestionKey = process.env.DAEGU_PARKING_CONGESTION_KEY;
 
-  const [infoItems, congestionItems] = await Promise.all([
-    fetchDaeguJson<DaeguPrkInfoItem>(infoEndpoint, infoKey, "주차장 기본정보"),
-    fetchDaeguJson<DaeguRltmPrkInfoItem>(congestionEndpoint, congestionKey, "실시간 주차 혼잡도"),
-  ]);
+  // 기본정보 API 키가 아직 없거나(승인 대기) 호출 자체가 실패(401 등)하면, 화면이 완전히
+  // 멈추는 대신 DUMMY_DAEGU_PARKING_LOTS로 대체한다. 키가 정상화되면 다음 캐시 주기
+  // (CACHE_TTL_MS)에 자동으로 실데이터로 교체된다.
+  if (!infoKey) {
+    console.warn("[대구시 API] DAEGU_PARKING_INFO_KEY가 설정되어 있지 않아 임시 주차장 목록으로 대체합니다.");
+    return DUMMY_DAEGU_PARKING_LOTS;
+  }
+
+  let infoItems: DaeguPrkInfoItem[];
+  try {
+    infoItems = await fetchDaeguJson<DaeguPrkInfoItem>(infoEndpoint, infoKey, "주차장 기본정보");
+  } catch (err) {
+    console.warn(
+      `[대구시 API] 기본정보 조회 실패 — 임시 주차장 목록으로 대체합니다: ${(err as Error).message}`
+    );
+    return DUMMY_DAEGU_PARKING_LOTS;
+  }
+
+  // 실시간 혼잡도는 부가 정보라, 이 호출이 실패해도(키 미설정/401 등) 기본정보만으로
+  // 목록은 계속 보여준다 — 혼잡도 표시만 "moderate" 기본값으로 빠진다.
+  let congestionItems: DaeguRltmPrkInfoItem[] = [];
+  if (!congestionKey) {
+    console.warn(
+      "[대구시 API] DAEGU_PARKING_CONGESTION_KEY가 설정되어 있지 않아 혼잡도 없이 기본정보만 표시합니다."
+    );
+  } else {
+    try {
+      congestionItems = await fetchDaeguJson<DaeguRltmPrkInfoItem>(
+        congestionEndpoint,
+        congestionKey,
+        "실시간 주차 혼잡도"
+      );
+    } catch (err) {
+      console.warn(
+        `[대구시 API] 실시간 혼잡도 조회 실패 — 혼잡도 없이 기본정보만 표시합니다: ${(err as Error).message}`
+      );
+    }
+  }
 
   const congestionByPkltId = new Map(
     congestionItems.map((c) => [c.rltmPrkInfo.pkltId, c.rltmPrkInfo])
