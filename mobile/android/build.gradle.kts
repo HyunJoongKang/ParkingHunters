@@ -9,15 +9,15 @@ allprojects {
     }
 }
 
-val newBuildDir: Directory =
-    rootProject.layout.buildDirectory
-        .dir("../../build")
-        .get()
-rootProject.layout.buildDirectory.value(newBuildDir)
+// 프로젝트가 OneDrive 동기화 폴더 안에 있으면 OneDrive가 build 산출물에
+// 삭제 거부(DENY) ACL을 상속시켜 Gradle이 mergeDebugNativeLibs 등에서
+// AccessDeniedException으로 실패한다. build 출력만 OneDrive 밖(LOCALAPPDATA)으로 옮긴다.
+val newBuildDir = File(System.getenv("LOCALAPPDATA"), "GradleBuilds/daegu_parking_app")
+rootProject.layout.buildDirectory.set(newBuildDir)
 
 subprojects {
-    val newSubprojectBuildDir: Directory = newBuildDir.dir(project.name)
-    project.layout.buildDirectory.value(newSubprojectBuildDir)
+    val newSubprojectBuildDir = File(newBuildDir, project.name)
+    project.layout.buildDirectory.set(newSubprojectBuildDir)
 }
 subprojects {
     project.evaluationDependsOn(":app")
