@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
 
@@ -79,11 +78,19 @@ class _WebViewScreenState extends State<WebViewScreen> {
       ..addJavaScriptChannel('NativeBridge', onMessageReceived: _handleNativeBridgeMessage)
       ..setNavigationDelegate(
         NavigationDelegate(
-          onPageStarted: (_) => setState(() => _isLoading = true),
+          onPageStarted: (_) {
+            setState(() => _isLoading = true);
+            // onPageFinished에서만 주입하면, 로드가 느릴 때 사용자가 그 사이 길찾기를
+            // 눌러 window.NativeBridge.startNavi가 아직 없는 상태(경쟁 상태)가 생기고,
+            // navi.ts가 카카오맵 웹 링크로 폴백해 외부 카카오맵/내비 앱이 열리게 된다.
+            // 네비게이션 시작 시점에 최대한 일찍 주입해 그 틈을 없앤다.
+            _controller.runJavaScript(kNativeBridgeShim);
+          },
           onPageFinished: (_) async {
             // 웹앱(app/lib/navi.ts)이 우선 시도하는 window.NativeBridge.startNavi(...)
             // 형태를 흉내내는 얇은 JS 래퍼를 페이지 로드마다 주입한다. webview_flutter의
             // JS 채널은 postMessage(String)만 제공하므로 실제 함수처럼 보이게 감싼다.
+            // onPageStarted 주입이 어떤 이유로든 적용되지 않았을 경우를 대비한 재주입.
             await _controller.runJavaScript(kNativeBridgeShim);
             setState(() => _isLoading = false);
           },
@@ -117,6 +124,7 @@ class _WebViewScreenState extends State<WebViewScreen> {
   // 네이티브(MainActivity.kt)의 MethodChannel로 그대로 넘긴다. 실제 KNSDK 인앱 내비
   // 화면을 띄우는 처리는 전부 네이티브 쪽(NaviActivity)에서 한다.
   Future<void> _handleNativeBridgeMessage(JavaScriptMessage message) async {
+    debugPrint('[NativeBridge] startNavi 요청 수신: ${message.message}');
     try {
       final data = jsonDecode(message.message) as Map<String, dynamic>;
       await kNaviChannel.invokeMethod('startNavi', {
@@ -124,47 +132,49 @@ class _WebViewScreenState extends State<WebViewScreen> {
         'lat': (data['lat'] as num).toDouble(),
         'lng': (data['lng'] as num).toDouble(),
       });
-    } catch (_) {
+      debugPrint('[NativeBridge] startNavi 네이티브 호출 성공');
+    } on PlatformException catch (e) {
+      // KNSDK_NOT_READY(초기화 미완료), INVALID_ARGS(좌표 문제), NAVI_START_FAILED
+      // (네이티브 예외) 등 MainActivity.kt/AppDelegate.swift가 돌려주는 실제 실패
+      // 원인이 여기 찍힌다 — 인앱 내비가 왜 안 뜨는지는 이 로그로 확인한다.
+      debugPrint('[NativeBridge] startNavi 네이티브 호출 실패: ${e.code} ${e.message} ${e.details}');
+      if (mounted) _showLaunchFailedMessage();
+    } catch (e, st) {
+      debugPrint('[NativeBridge] startNavi 메시지 처리 중 예외: $e\n$st');
       if (mounted) _showLaunchFailedMessage();
     }
   }
 
-  // 웹 내 [길찾기] 버튼은 카카오맵 웹 링크(https://map.kakao.com/...)를 새 탭으로
-  // 열거나(app/lib/navi.ts), 추후 카카오내비 딥링크(kakaonavi-sdk://...)로 이동을
-  // 시도할 수 있다. 두 경우 모두 WebView 안에서는 정상적으로 열리지 않으므로,
-  // http/https가 아닌 스킴이거나 카카오맵/내비 외부 링크면 url_launcher로 넘겨
-  // 카카오내비 앱(설치되어 있다면) 또는 기본 브라우저로 실행한다.
+  // 길찾기는 반드시 KNSDK 인앱 내비(NativeBridge.startNavi -> MainActivity/AppDelegate
+  // -> NaviActivity/KNNaviViewController)로만 처리한다. 예전에는 이 경로가 실패하면
+  // app/lib/navi.ts가 카카오맵 웹 링크(https://map.kakao.com/...)로 폴백했고, 이걸
+  // url_launcher로 카카오맵/카카오내비 앱을 여는 외부 실행 폴백이 있었다 — 이러면
+  // 인앱 내비가 왜 안 떴는지(KNSDK 초기화 실패, 좌표 변환 실패 등) 원인이 가려진다.
+  // 그래서 카카오맵/내비 관련 요청(및 http가 아닌 임의 스킴)은 절대 외부로 보내지
+  // 않고 여기서 막은 뒤 원인 진단용 로그만 남긴다.
   Future<NavigationDecision> _handleNavigationRequest(NavigationRequest request) async {
     final uri = Uri.tryParse(request.url);
     if (uri == null) return NavigationDecision.navigate;
 
     final isHttp = uri.scheme == 'http' || uri.scheme == 'https';
-    final isExternalMapLink =
-        isHttp && (uri.host.contains('map.kakao.com') || uri.host.contains('kakaonavi'));
+    final isKakaoNaviLink =
+        uri.host.contains('map.kakao.com') || uri.host.contains('kakaonavi') || uri.host.contains('kakaomap');
 
-    if (!isHttp || isExternalMapLink) {
-      await _launchExternally(uri);
+    if (!isHttp || isKakaoNaviLink) {
+      debugPrint(
+        '[Navi] 외부 앱 실행 요청을 차단함: ${request.url} '
+        '(KNSDK 인앱 내비 경로(NativeBridge.startNavi)가 실패했다는 뜻일 수 있음 — '
+        '위 [NativeBridge] 로그에서 실패 원인을 확인할 것)',
+      );
+      if (mounted) _showLaunchFailedMessage();
       return NavigationDecision.prevent;
     }
     return NavigationDecision.navigate;
   }
 
-  Future<void> _launchExternally(Uri uri) async {
-    try {
-      final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
-      if (!launched && mounted) {
-        _showLaunchFailedMessage();
-      }
-    } catch (_) {
-      // 카카오내비 앱 등 대상 앱이 설치되어 있지 않아 스킴을 처리할 수 없는
-      // 경우(kakaonavi-sdk:// 등) — 앱을 강제 종료시키지 않고 안내만 한다.
-      if (mounted) _showLaunchFailedMessage();
-    }
-  }
-
   void _showLaunchFailedMessage() {
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('카카오내비 앱을 열 수 없습니다. 설치 후 다시 시도해 주세요.')),
+      const SnackBar(content: Text('내비게이션을 시작할 수 없습니다. 잠시 후 다시 시도해 주세요.')),
     );
   }
 

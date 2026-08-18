@@ -15,8 +15,11 @@ class MainActivity : FlutterActivity() {
         private const val NAVI_CHANNEL = "com.daeguparking.daegu_parking_app/navi"
         private const val TAG = "KNSDK"
 
-        // TODO: 카카오 개발자 콘솔 > 내 애플리케이션 > 앱 키 > 네이티브 앱 키로 교체한다.
-        // (웹에서 쓰는 NEXT_PUBLIC_KAKAO_JS_KEY, REST API 키와는 다른 값이다.)
+        // 카카오 개발자 콘솔에서 발급받은 실제 네이티브 앱 키(웹에서 쓰는
+        // NEXT_PUBLIC_KAKAO_JS_KEY, REST API 키와는 다른 값). 이 앱의 패키지명
+        // (com.daeguparking.daegu_parking_app)과 디버그/릴리스 키 해시가 콘솔의
+        // 플랫폼 설정(Android)에 등록되어 있어야 초기화가 성공한다(미등록 시
+        // "C103 SDK Certification Failed - INVALID_TOKEN"로 실패).
         private const val KNSDK_APP_KEY = "820ee81b7911aae2b04c5ab9ec63736c"
 
         // initializeWithAppKey는 비동기 콜백이라, 완료 전에 NaviActivity가 KNSDK를

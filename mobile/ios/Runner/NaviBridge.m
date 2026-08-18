@@ -5,7 +5,10 @@
 // 확인해서 다르면 이 import 한 줄만 고치면 된다 (팟 이름 KNSDK-UI -> 모듈명 KNSDK_UI 관례를 따름).
 #import <KNSDK_UI/KNSDK_UI.h>
 
-// 안드로이드 MainActivity.kt의 KNSDK_APP_KEY와 동일한 값.
+// 안드로이드 MainActivity.kt의 KNSDK_APP_KEY와 동일한, 카카오 개발자 콘솔에서 발급받은
+// 실제 네이티브 앱 키. Android는 패키지명+키 해시를 등록하지만 iOS는 콘솔의 플랫폼
+// 설정(iOS)에 Bundle ID를 별도로 등록해야 한다 — Android 쪽만 등록했다면 iOS에서는
+// 여전히 초기화가 실패("C103 SDK Certification Failed" 등)할 수 있다.
 static NSString *const kKNSDKAppKey = @"820ee81b7911aae2b04c5ab9ec63736c";
 
 static BOOL sKNSDKInitialized = NO;

@@ -45,16 +45,22 @@ export function startNavigation(target: NaviTarget) {
   }
 
   if (window.NativeBridge?.startNavi) {
+    console.log("[navi] NativeBridge.startNavi 경로 사용 (KNSDK 인앱 내비)", target);
     window.NativeBridge.startNavi(target.name, target.lat, target.lng);
     return;
   }
 
   if (window.ReactNativeWebView?.postMessage) {
+    console.log("[navi] ReactNativeWebView.postMessage 경로 사용", target);
     window.ReactNativeWebView.postMessage(
       JSON.stringify({ type: NAVI_MESSAGE_TYPE, name: target.name, lat: target.lat, lng: target.lng })
     );
     return;
   }
 
+  // 여기로 오면 NativeBridge가 아직 주입되지 않았거나(WebView 로드 타이밍 문제)
+  // 순수 웹 브라우저 환경이라는 뜻이다. 앱(WebView) 안에서 이 로그가 보이면
+  // KNSDK 인앱 내비 대신 카카오맵 웹 링크로 새 창을 여는 중이라는 신호다.
+  console.warn("[navi] NativeBridge 없음 — 카카오맵 웹 링크로 폴백", target);
   window.open(buildKakaoWebNaviUrl(target), "_blank", "noopener,noreferrer");
 }
