@@ -5,6 +5,7 @@ import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.util.Log
 import android.widget.Toast
 import androidx.core.app.ActivityCompat
 import com.google.android.gms.location.FusedLocationProviderClient
@@ -59,6 +60,7 @@ class NaviActivity :
         const val EXTRA_NAME = "name"
         const val EXTRA_LAT = "lat"
         const val EXTRA_LNG = "lng"
+        private const val TAG = "NaviActivity"
     }
 
     private lateinit var naviView: KNNaviView
@@ -71,9 +73,26 @@ class NaviActivity :
 
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
 
+        // MainActivity가 KNSDK 초기화 완료 여부를 확인한 뒤에만 이 액티비티를 띄우지만,
+        // 딥링크 등 다른 경로로 직접 진입할 가능성에 대비해 여기서도 한 번 더 막는다 —
+        // 초기화 전에 KNSDK 호출(convertWGS84ToKATEC 등)이 들어가면 네이티브 크래시로
+        // 앱 전체가 죽는다.
+        if (!MainActivity.isKNSDKReady) {
+            Log.e(TAG, "KNSDK가 초기화되지 않은 상태로 진입: ${MainActivity.knsdkInitErrorMessage}")
+            Toast.makeText(this, "내비게이션 SDK가 아직 준비되지 않았습니다. 잠시 후 다시 시도해주세요.", Toast.LENGTH_SHORT).show()
+            finish()
+            return
+        }
+
         val destName = intent.getStringExtra(EXTRA_NAME) ?: "목적지"
         val destLat = intent.getDoubleExtra(EXTRA_LAT, 0.0)
         val destLng = intent.getDoubleExtra(EXTRA_LNG, 0.0)
+        if (destLat.isNaN() || destLng.isNaN() || (destLat == 0.0 && destLng == 0.0)) {
+            Log.e(TAG, "잘못된 목적지 좌표: lat=$destLat, lng=$destLng")
+            Toast.makeText(this, "목적지 좌표가 올바르지 않습니다.", Toast.LENGTH_SHORT).show()
+            finish()
+            return
+        }
         startTrip(destName, destLat, destLng)
     }
 
@@ -82,9 +101,17 @@ class NaviActivity :
     // 그대로 넘길 수 없다. (name, IntPoint) 2-인자 생성자는 internal이라 외부에서 못
     // 쓰므로, 공개된 (name, longitude, latitude, address) 4-인자 생성자를 쓴다 — 나머지
     // 뒤쪽 인자들은 코틀린 기본값이 있어 생략 가능하다(공식 가이드 예시와 동일한 형태).
-    private fun toKnPoi(name: String, lat: Double, lng: Double): KNPOI {
-        val katec = KNSDK.convertWGS84ToKATEC(lat, lng)
-        return KNPOI(name, katec.x.toInt(), katec.y.toInt(), name)
+    // KNSDK가 초기화되지 않았거나 좌표가 KATEC으로 변환 불가능한 값이면 예외를 던질 수
+    // 있어(디컴파일 확인 안 된 내부 구현이라 보장 못 함) 여기서 잡아 null로 흡수한다 —
+    // 호출부가 그대로 크래시하는 대신 사용자에게 안내 메시지를 보여주고 화면을 닫게 한다.
+    private fun toKnPoi(name: String, lat: Double, lng: Double): KNPOI? {
+        return try {
+            val katec = KNSDK.convertWGS84ToKATEC(lat, lng)
+            KNPOI(name, katec.x.toInt(), katec.y.toInt(), name)
+        } catch (t: Throwable) {
+            Log.e(TAG, "좌표 변환 실패 (name=$name, lat=$lat, lng=$lng)", t)
+            null
+        }
     }
 
     @SuppressLint("MissingPermission")
@@ -101,57 +128,92 @@ class NaviActivity :
 
         fusedLocationClient.lastLocation
             .addOnSuccessListener { location ->
-                if (location == null) {
-                    Toast.makeText(this, "현재 위치를 확인할 수 없습니다.", Toast.LENGTH_SHORT).show()
-                    finish()
-                    return@addOnSuccessListener
-                }
-                val start = toKnPoi("현재 위치", location.latitude, location.longitude)
-                val goal = toKnPoi(destName, destLat, destLng)
-                KNSDK.makeTripWithStart(start, goal, null, null) { error, trip ->
-                    if (error != null || trip == null) {
-                        Toast.makeText(this, "경로 탐색에 실패했습니다: ${error?.msg}", Toast.LENGTH_SHORT).show()
+                try {
+                    if (location == null) {
+                        Log.e(TAG, "현재 위치를 확인할 수 없음 (lastLocation == null)")
+                        Toast.makeText(this, "현재 위치를 확인할 수 없습니다.", Toast.LENGTH_SHORT).show()
                         finish()
-                        return@makeTripWithStart
+                        return@addOnSuccessListener
                     }
-                    beginGuidance(trip)
+                    val start = toKnPoi("현재 위치", location.latitude, location.longitude)
+                    val goal = toKnPoi(destName, destLat, destLng)
+                    if (start == null || goal == null) {
+                        Toast.makeText(this, "좌표 변환에 실패했습니다.", Toast.LENGTH_SHORT).show()
+                        finish()
+                        return@addOnSuccessListener
+                    }
+                    KNSDK.makeTripWithStart(start, goal, null, null) { error, trip ->
+                        try {
+                            if (error != null || trip == null) {
+                                Log.e(TAG, "경로 탐색 실패: ${error?.code} ${error?.msg}")
+                                Toast.makeText(this, "경로 탐색에 실패했습니다: ${error?.msg}", Toast.LENGTH_SHORT).show()
+                                finish()
+                                return@makeTripWithStart
+                            }
+                            beginGuidance(trip)
+                        } catch (t: Throwable) {
+                            Log.e(TAG, "경로 탐색 콜백 처리 중 예외 발생", t)
+                            Toast.makeText(this, "내비게이션 시작 중 오류가 발생했습니다.", Toast.LENGTH_SHORT).show()
+                            finish()
+                        }
+                    }
+                } catch (t: Throwable) {
+                    Log.e(TAG, "경로 탐색 요청 중 예외 발생", t)
+                    Toast.makeText(this, "내비게이션 시작 중 오류가 발생했습니다.", Toast.LENGTH_SHORT).show()
+                    finish()
                 }
             }
-            .addOnFailureListener {
+            .addOnFailureListener { e ->
+                Log.e(TAG, "현재 위치를 가져오지 못함", e)
                 Toast.makeText(this, "현재 위치를 가져오지 못했습니다.", Toast.LENGTH_SHORT).show()
                 finish()
             }
     }
 
     private fun beginGuidance(trip: KNTrip) {
-        val guidance = KNSDK.sharedGuidance()
-        if (guidance == null) {
-            Toast.makeText(this, "내비게이션을 시작할 수 없습니다.", Toast.LENGTH_SHORT).show()
-            finish()
-            return
-        }
-        guidance.guideStateDelegate = this
-        guidance.locationGuideDelegate = this
-        guidance.routeGuideDelegate = this
-        guidance.safetyGuideDelegate = this
-        guidance.voiceGuideDelegate = this
-        guidance.citsGuideDelegate = this
+        try {
+            val guidance = KNSDK.sharedGuidance()
+            if (guidance == null) {
+                Log.e(TAG, "sharedGuidance()가 null — 초기화가 완료되지 않았을 수 있음")
+                Toast.makeText(this, "내비게이션을 시작할 수 없습니다.", Toast.LENGTH_SHORT).show()
+                finish()
+                return
+            }
+            guidance.guideStateDelegate = this
+            guidance.locationGuideDelegate = this
+            guidance.routeGuideDelegate = this
+            guidance.safetyGuideDelegate = this
+            guidance.voiceGuideDelegate = this
+            guidance.citsGuideDelegate = this
 
-        naviView.initWithGuidance(
-            guidance,
-            trip,
-            KNRoutePriority.KNRoutePriority_Recommand,
-            KNRouteAvoidOption.KNRouteAvoidOption_None.value
-        )
+            naviView.initWithGuidance(
+                guidance,
+                trip,
+                KNRoutePriority.KNRoutePriority_Recommand,
+                KNRouteAvoidOption.KNRouteAvoidOption_None.value
+            )
+        } catch (t: Throwable) {
+            Log.e(TAG, "내비게이션 화면 초기화 중 예외 발생", t)
+            Toast.makeText(this, "내비게이션 화면을 표시할 수 없습니다.", Toast.LENGTH_SHORT).show()
+            finish()
+        }
     }
 
     override fun onBackPressed() {
-        naviView.guideCancel()
+        try {
+            naviView.guideCancel()
+        } catch (t: Throwable) {
+            Log.e(TAG, "guideCancel 중 예외 발생", t)
+        }
         super.onBackPressed()
     }
 
     override fun onDestroy() {
-        KNSDK.sharedGuidance()?.stop()
+        try {
+            KNSDK.sharedGuidance()?.stop()
+        } catch (t: Throwable) {
+            Log.e(TAG, "가이던스 종료 중 예외 발생", t)
+        }
         super.onDestroy()
     }
 

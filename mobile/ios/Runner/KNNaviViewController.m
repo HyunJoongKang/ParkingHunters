@@ -47,6 +47,11 @@
     [super viewDidLoad];
     self.view.backgroundColor = [UIColor blackColor];
 
+    if (!isfinite(self.destLat) || !isfinite(self.destLng) || (self.destLat == 0 && self.destLng == 0)) {
+        [self failWithMessage:[NSString stringWithFormat:@"목적지 좌표가 올바르지 않습니다: %f, %f", self.destLat, self.destLng]];
+        return;
+    }
+
     self.locationManager = [[CLLocationManager alloc] init];
     self.locationManager.delegate = self;
     self.locationManager.desiredAccuracy = kCLLocationAccuracyBest;
@@ -91,60 +96,82 @@
 
 #pragma mark - Trip / Guidance
 
-- (KNPOI *)poiWithName:(NSString *)name latitude:(double)lat longitude:(double)lng {
-    // KATEC 좌표계 변환 — KNPOI는 WGS84(위경도)가 아니라 KATEC x/y(SInt32)를 받는다.
-    KNError *convertError = nil;
-    CGPoint katec = [[KNSDK sharedInstance] convertWGS84ToKATECWithLongitude:lng latitude:lat];
-    (void)convertError;
-    return [[KNPOI alloc] initWithName:name
-                                      x:(SInt32)katec.x
-                                      y:(SInt32)katec.y
-                                address:name];
+// KATEC 좌표계 변환 — KNPOI는 WGS84(위경도)가 아니라 KATEC x/y(SInt32)를 받는다.
+// 초기화가 끝나지 않았거나 좌표가 변환 불가능한 값이면 KNSDK 내부에서 예외를 던질 수
+// 있어(디컴파일로 시그니처만 확인했을 뿐 내부 구현은 보장 못 함) @try/@catch로 감싸
+// 실패 시 nil을 돌려주고 호출부가 안전하게 종료하게 한다.
+- (nullable KNPOI *)poiWithName:(NSString *)name latitude:(double)lat longitude:(double)lng {
+    @try {
+        CGPoint katec = [[KNSDK sharedInstance] convertWGS84ToKATECWithLongitude:lng latitude:lat];
+        return [[KNPOI alloc] initWithName:name
+                                          x:(SInt32)katec.x
+                                          y:(SInt32)katec.y
+                                    address:name];
+    } @catch (NSException *exception) {
+        NSLog(@"[KNNaviViewController] 좌표 변환 실패 (name=%@, lat=%f, lng=%f): %@", name, lat, lng, exception);
+        return nil;
+    }
 }
 
 - (void)startTripFromLatitude:(double)lat longitude:(double)lng {
     KNPOI *start = [self poiWithName:@"현재 위치" latitude:lat longitude:lng];
     KNPOI *goal = [self poiWithName:self.destName latitude:self.destLat longitude:self.destLng];
+    if (start == nil || goal == nil) {
+        [self failWithMessage:@"좌표 변환에 실패했습니다."];
+        return;
+    }
 
     __weak typeof(self) weakSelf = self;
-    [[KNSDK sharedInstance] makeTripWithStart:start
-                                          goal:goal
-                                          vias:nil
-                                    completion:^(KNError * _Nullable error, KNTrip * _Nullable trip) {
-        dispatch_async(dispatch_get_main_queue(), ^{
-            __strong typeof(weakSelf) strongSelf = weakSelf;
-            if (strongSelf == nil) {
-                return;
-            }
-            if (error != nil || trip == nil) {
-                [strongSelf failWithMessage:[NSString stringWithFormat:@"경로 탐색에 실패했습니다: %@", error.msg]];
-                return;
-            }
-            [strongSelf beginGuidanceWithTrip:trip];
-        });
-    }];
+    @try {
+        [[KNSDK sharedInstance] makeTripWithStart:start
+                                              goal:goal
+                                              vias:nil
+                                        completion:^(KNError * _Nullable error, KNTrip * _Nullable trip) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                __strong typeof(weakSelf) strongSelf = weakSelf;
+                if (strongSelf == nil) {
+                    return;
+                }
+                if (error != nil || trip == nil) {
+                    NSLog(@"[KNNaviViewController] 경로 탐색 실패: %@ %@", @(error.code), error.msg);
+                    [strongSelf failWithMessage:[NSString stringWithFormat:@"경로 탐색에 실패했습니다: %@", error.msg]];
+                    return;
+                }
+                [strongSelf beginGuidanceWithTrip:trip];
+            });
+        }];
+    } @catch (NSException *exception) {
+        NSLog(@"[KNNaviViewController] 경로 탐색 요청 중 예외 발생: %@", exception);
+        [self failWithMessage:@"내비게이션 시작 중 오류가 발생했습니다."];
+    }
 }
 
 - (void)beginGuidanceWithTrip:(KNTrip *)trip {
-    KNGuidance *guidance = [[KNSDK sharedInstance] sharedGuidance];
-    if (guidance == nil) {
-        [self failWithMessage:@"내비게이션을 시작할 수 없습니다."];
-        return;
-    }
-    guidance.guideStateDelegate = self;
-    guidance.locationGuideDelegate = self;
-    guidance.routeGuideDelegate = self;
-    guidance.safetyGuideDelegate = self;
-    guidance.voiceGuideDelegate = self;
-    guidance.citsGuideDelegate = self;
+    @try {
+        KNGuidance *guidance = [[KNSDK sharedInstance] sharedGuidance];
+        if (guidance == nil) {
+            NSLog(@"[KNNaviViewController] sharedGuidance가 nil — 초기화가 완료되지 않았을 수 있음");
+            [self failWithMessage:@"내비게이션을 시작할 수 없습니다."];
+            return;
+        }
+        guidance.guideStateDelegate = self;
+        guidance.locationGuideDelegate = self;
+        guidance.routeGuideDelegate = self;
+        guidance.safetyGuideDelegate = self;
+        guidance.voiceGuideDelegate = self;
+        guidance.citsGuideDelegate = self;
 
-    self.naviView = [[KNNaviView alloc] initWithGuidance:guidance
-                                                     trip:trip
-                                              routeOption:KNRoutePriorityRecommand
-                                              avoidOption:KNRouteAvoidOptionNone];
-    self.naviView.frame = self.view.bounds;
-    self.naviView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-    [self.view addSubview:self.naviView];
+        self.naviView = [[KNNaviView alloc] initWithGuidance:guidance
+                                                         trip:trip
+                                                  routeOption:KNRoutePriorityRecommand
+                                                  avoidOption:KNRouteAvoidOptionNone];
+        self.naviView.frame = self.view.bounds;
+        self.naviView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+        [self.view addSubview:self.naviView];
+    } @catch (NSException *exception) {
+        NSLog(@"[KNNaviViewController] 내비게이션 화면 초기화 중 예외 발생: %@", exception);
+        [self failWithMessage:@"내비게이션 화면을 표시할 수 없습니다."];
+    }
 }
 
 - (void)failWithMessage:(NSString *)message {

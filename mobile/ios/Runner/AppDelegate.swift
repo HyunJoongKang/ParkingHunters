@@ -28,9 +28,23 @@ private let naviChannelName = "com.daeguparking.daegu_parking_app/navi"
       guard
         let args = call.arguments as? [String: Any],
         let lat = args["lat"] as? Double,
-        let lng = args["lng"] as? Double
+        let lng = args["lng"] as? Double,
+        lat.isFinite, lng.isFinite,
+        !(lat == 0 && lng == 0)
       else {
+        NSLog("[KNSDK] 잘못된 좌표로 startNavi 호출됨: %@", String(describing: call.arguments))
         result(FlutterError(code: "INVALID_ARGS", message: "lat/lng가 필요합니다.", details: nil))
+        return
+      }
+      // initializeKNSDK()의 완료 콜백이 아직 안 왔으면 KNNaviViewController가
+      // KNSDK를 호출하는 순간 네이티브 크래시로 이어진다 — 여기서 먼저 막는다.
+      guard NaviBridge.isInitialized() else {
+        NSLog("[KNSDK] 초기화가 아직 끝나지 않음: %@", NaviBridge.initializationErrorMessage() ?? "nil")
+        result(FlutterError(
+          code: "KNSDK_NOT_READY",
+          message: "내비게이션 SDK가 아직 준비되지 않았습니다. 잠시 후 다시 시도해주세요.",
+          details: NaviBridge.initializationErrorMessage()
+        ))
         return
       }
       let name = (args["name"] as? String) ?? ""

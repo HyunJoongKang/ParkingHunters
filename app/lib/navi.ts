@@ -39,6 +39,11 @@ function buildKakaoWebNaviUrl({ name, lat, lng }: NaviTarget): string {
 export function startNavigation(target: NaviTarget) {
   if (typeof window === "undefined") return;
 
+  if (!Number.isFinite(target.lat) || !Number.isFinite(target.lng) || (target.lat === 0 && target.lng === 0)) {
+    console.error("[navi] 잘못된 좌표로 startNavigation 호출됨:", target);
+    return;
+  }
+
   if (window.NativeBridge?.startNavi) {
     window.NativeBridge.startNavi(target.name, target.lat, target.lng);
     return;
