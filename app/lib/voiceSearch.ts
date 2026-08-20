@@ -7,10 +7,22 @@ import { correctDaeguVoiceText } from "./voiceCorrections";
 // 굳어진 상태), 별도 타입 패키지를 추가하지 않기로 해서(요구사항: 추가 라이브러리
 // 설치 없이 구현) 여기서 필요한 만큼만 최소로 선언한다. kakao.ts의 `window.kakao: any`
 // 패턴과 동일하게 엄격한 타이핑은 포기하고 any로 둔다.
+// Flutter 앱(Android/iOS WebView)에는 Web Speech API 자체가 없다 — 이는 WebView
+// 엔진(Chromium WebView/WKWebView) 공통의 한계라 브라우저 쪽에서 고칠 수 없다. 그래서
+// mobile/lib/main.dart가 페이지 로드 시 window.NativeVoice를 주입해, speech_to_text
+// 패키지(OS 네이티브 음성 인식)로 위임할 수 있는 다리를 만들어 준다. 이 다리가 있으면
+// 그걸 쓰고, 없으면(일반 브라우저) 아래 SpeechRecognition 경로를 그대로 쓴다.
 declare global {
   interface Window {
     SpeechRecognition?: any;
     webkitSpeechRecognition?: any;
+    NativeVoice?: {
+      startListening: (lang: string) => void;
+      stopListening: () => void;
+    };
+    __onNativeVoiceResult?: (text: string) => void;
+    __onNativeVoiceError?: (code: string) => void;
+    __onNativeVoiceListeningChange?: (isListening: boolean) => void;
   }
 }
 
@@ -46,6 +58,24 @@ function mapErrorCode(rawCode: string | undefined): VoiceSearchErrorCode {
       return "network";
     case "aborted":
       return "aborted";
+    default:
+      return "generic";
+  }
+}
+
+// mobile/lib/main.dart(_mapSpeechErrorToWebCode)가 이미 이 코드 값들("not-allowed"
+// | "no-speech" | "network" | "generic" | "unsupported")로 보내주지만, 알 수 없는
+// 값이 오더라도 안전하게 fallback한다.
+function mapNativeErrorCode(rawCode: string): VoiceSearchErrorCode {
+  switch (rawCode) {
+    case "unsupported":
+      return "unsupported";
+    case "not-allowed":
+      return "not-allowed";
+    case "no-speech":
+      return "no-speech";
+    case "network":
+      return "network";
     default:
       return "generic";
   }
@@ -102,14 +132,48 @@ export function useVoiceSearch({ lang, onResult, onError }: UseVoiceSearchOption
   onErrorRef.current = onError;
 
   const isSupported =
-    typeof window !== "undefined" && Boolean(window.SpeechRecognition || window.webkitSpeechRecognition);
+    typeof window !== "undefined" &&
+    Boolean(window.NativeVoice || window.SpeechRecognition || window.webkitSpeechRecognition);
+
+  // Flutter 앱이 주입한 네이티브 결과/에러/상태 콜백을 등록한다. 브라우저 환경에서는
+  // window.NativeVoice가 없어 이 콜백들이 그냥 아무도 안 부르는 채로 남는다(무해).
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.__onNativeVoiceResult = (text) => {
+      if (text) onResultRef.current(correctDaeguVoiceText(text));
+    };
+    window.__onNativeVoiceError = (code) => {
+      setIsListening(false);
+      onErrorRef.current(mapNativeErrorCode(code));
+    };
+    window.__onNativeVoiceListeningChange = (listening) => {
+      setIsListening(listening);
+    };
+    return () => {
+      delete window.__onNativeVoiceResult;
+      delete window.__onNativeVoiceError;
+      delete window.__onNativeVoiceListeningChange;
+    };
+  }, []);
 
   const stop = useCallback(() => {
+    if (typeof window !== "undefined" && window.NativeVoice) {
+      window.NativeVoice.stopListening();
+      return;
+    }
     recognitionRef.current?.stop();
   }, []);
 
   const start = useCallback(async () => {
     if (typeof window === "undefined") return;
+
+    if (window.NativeVoice) {
+      // 마이크 권한 확인과 오디오 캡처는 네이티브(speech_to_text)가 전부 처리한다 —
+      // 여기서는 시작 신호만 보내고, 결과는 위 __onNativeVoiceResult 등으로 돌아온다.
+      window.NativeVoice.startListening(langRef.current);
+      return;
+    }
+
     if (recognitionRef.current) return; // 이미 듣고 있는 중이면 중복 시작하지 않는다.
 
     const SpeechRecognitionCtor = window.SpeechRecognition || window.webkitSpeechRecognition;

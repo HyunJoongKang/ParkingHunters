@@ -8,6 +8,8 @@
     <!-- KNSDK(카카오내비 SDK)가 요구하는 권한 — knsdk_ui-1.12.7.aar의 AndroidManifest.xml에서
          직접 확인함(디컴파일). 매니페스트 병합으로 이미 들어가지만 명시적으로 남겨 둔다. -->
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+    <!-- 음성 검색(speech_to_text)이 마이크로 오디오를 캡처하는 데 필요 -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
     <application
         android:label="daegu_parking_app"

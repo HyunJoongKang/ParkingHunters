@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
 import KakaoMap, { type KakaoMapMarker } from "./components/KakaoMap";
 import MapLegend from "./components/MapLegend";
 import ParkingCard from "./components/ParkingCard";
@@ -116,10 +116,14 @@ export default function Home() {
 
   // 지도/리스트 모드 전환마다 이 행이 언마운트·재마운트돼 ref가 새 DOM 노드를
   // 가리키게 된다 — 콜백 ref로 노드가 붙는 시점마다 바로 다시 측정한다.
-  function setFilterRowRef(el: HTMLDivElement | null) {
+  // useCallback으로 함수 identity를 고정해야 한다 — 매 렌더마다 새 함수면 React가
+  // 그걸 매번 "새 ref"로 보고 다시 호출하고, 그 안의 setState가 재렌더를 유발해
+  // 무한 루프(React error #185, Maximum update depth exceeded)에 빠진다.
+  const setFilterRowRef = useCallback((el: HTMLDivElement | null) => {
     filterRowRef.current = el;
     if (el) updateFilterScrollThumb();
-  }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     updateFilterScrollThumb();
@@ -168,6 +172,8 @@ export default function Home() {
   const [myLocationRegion, setMyLocationRegion] = useState<RegionLabel | null>(null);
   const [myLocationRegionFailed, setMyLocationRegionFailed] = useState(false);
   const [locationError, setLocationError] = useState("");
+  // 상단 바의 새로고침 아이콘(현재 위치 재조회) 회전 애니메이션 표시 여부.
+  const [isRefreshingLocation, setIsRefreshingLocation] = useState(false);
   const hasLoadedOnceRef = useRef(false);
 
   // 현재 카드 목록을 정렬하는 기준 좌표. 기본은 내 현재 위치, 목적지를 검색하면
@@ -261,6 +267,7 @@ export default function Home() {
       return;
     }
     setLocationError("");
+    setIsRefreshingLocation(true);
     navigator.geolocation.getCurrentPosition(
       (position) => {
         const coords = { lat: position.coords.latitude, lng: position.coords.longitude };
@@ -269,14 +276,16 @@ export default function Home() {
         setMyLocationRegionFailed(false);
         setSearchLabel(null);
         setSearchCoords(coords);
-        loadNearestLots(coords);
+        loadNearestLots(coords).finally(() => setIsRefreshingLocation(false));
       },
       (err) => {
         setLocationError(geoErrorMessage(err.code, t));
         // 이번이 첫 시도였다면(=아직 아무 기준 좌표도 없었다면) 대구 중심 기준으로라도 바로 보여준다.
         if (!hasLoadedOnceRef.current) {
           setSearchCoords(DAEGU_CENTER);
-          loadNearestLots(DAEGU_CENTER);
+          loadNearestLots(DAEGU_CENTER).finally(() => setIsRefreshingLocation(false));
+        } else {
+          setIsRefreshingLocation(false);
         }
       },
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
@@ -497,6 +506,28 @@ export default function Home() {
           >
             📍 {locationChipText}
           </button>
+          {/* 목적지 검색 상태(searchLabel 있음)에서는 "현재 위치 재조회"가 의미가
+              없어 숨긴다 — 현재 위치 기반 탐색 모드일 때만 보인다. */}
+          {!searchLabel && (
+            <button
+              type="button"
+              style={styles.settingsButton}
+              onClick={requestCurrentLocation}
+              disabled={isRefreshingLocation}
+              aria-label={t.refreshLocationAria}
+            >
+              <svg
+                className={isRefreshingLocation ? "spin-icon" : undefined}
+                viewBox="0 0 24 24"
+                width="16"
+                height="16"
+                fill="currentColor"
+                aria-hidden="true"
+              >
+                <path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z" />
+              </svg>
+            </button>
+          )}
           <button
             type="button"
             style={styles.settingsButton}

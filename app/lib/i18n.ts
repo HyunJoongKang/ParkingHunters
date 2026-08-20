@@ -14,6 +14,7 @@ export interface Dictionary {
   voiceErrorNetwork: string;
   voiceErrorGeneric: string;
   settingsAria: string;
+  refreshLocationAria: string;
   settingsTitle: string;
   languageLabel: string;
   themeLabel: string;
@@ -87,6 +88,7 @@ const ko: Dictionary = {
   voiceErrorNetwork: "네트워크 오류로 음성 인식에 실패했습니다.",
   voiceErrorGeneric: "음성 인식 중 오류가 발생했습니다.",
   settingsAria: "설정",
+  refreshLocationAria: "현재 위치 새로고침",
   settingsTitle: "설정",
   languageLabel: "언어",
   themeLabel: "테마",
@@ -166,6 +168,7 @@ const en: Dictionary = {
   voiceErrorNetwork: "Voice recognition failed due to a network error.",
   voiceErrorGeneric: "Something went wrong during voice recognition.",
   settingsAria: "Settings",
+  refreshLocationAria: "Refresh current location",
   settingsTitle: "Settings",
   languageLabel: "Language",
   themeLabel: "Theme",
