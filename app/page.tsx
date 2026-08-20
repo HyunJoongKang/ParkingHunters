@@ -146,9 +146,23 @@ export default function Home() {
         params.set("lng", String(coords.lng));
       }
       const res = await fetch(`/api/parking-lots?${params.toString()}`);
-      const data = await res.json();
       if (requestIdRef.current !== requestId) return; // 이후 요청이 이미 새로 시작됐으면 무시
-      if (!res.ok) throw new Error(data?.error ?? t.resultsLoadFailed);
+
+      // 배포 플랫폼이 502/504 등으로 앱 대신 자체 HTML 에러 페이지를 내려보낼 수 있어,
+      // res.json()을 바로 부르면 "Unexpected token '<'..." 파싱 에러가 난다. 먼저 텍스트로
+      // 받아 JSON 파싱을 직접 시도하고, 실패하면 서버 응답이 아니라는 뜻이므로 그 자체를
+      // 실패로 취급한다.
+      const rawText = await res.text();
+      let data: { lots?: ParkingLot[]; error?: string } | null = null;
+      try {
+        data = rawText ? JSON.parse(rawText) : null;
+      } catch {
+        data = null;
+      }
+
+      if (!res.ok || !data) {
+        throw new Error(data?.error ?? t.resultsLoadFailed);
+      }
       const deduped = dedupeById<ParkingLot>(data.lots ?? []);
       setNearestLots(deduped);
       // 지도 첫 진입/재검색 시 가장 가까운 곳을 자동 선택해 하단 요약 카드를 바로 보여준다.

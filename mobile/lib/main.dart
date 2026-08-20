@@ -6,8 +6,9 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
 
-// 2단계에서 배포한 Vercel 프로덕션 URL(고정 alias).
-const String kWebAppUrl = "https://my-first-app-omega-lime.vercel.app";
+// Cloudtype에 배포한 프로덕션 URL. 대구시 API의 해외 IP 차단 문제 때문에
+// Vercel에서 국내 리전 PaaS(Cloudtype)로 이전했다.
+const String kWebAppUrl = "https://port-next-parkinghunters-mt11lnjif422a8c1.sel3.cloudtype.app";
 
 // MainActivity.kt(Android)의 MethodChannel과 이름이 일치해야 한다.
 const String kNaviChannelName = "com.daeguparking.daegu_parking_app/navi";

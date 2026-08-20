@@ -266,9 +266,12 @@ export function loadKakaoMapsSdk(appKey: string): Promise<void> {
       appKey
     )}&libraries=services&autoload=false`;
 
-    const existing = document.getElementById(KAKAO_SCRIPT_ID);
-    const script =
-      existing instanceof HTMLScriptElement ? existing : document.createElement("script");
+    // 이전 시도가 실패해서 남아있는 <script> 태그를 재사용하면, 브라우저가 동일한
+    // src로는 재요청을 안 하는 경우가 많아(예: Chrome) onload/onerror가 다시는 안 불리고
+    // 이 Promise가 영원히 멈춘다. 그래서 재시도할 땐 항상 새 태그로 만든다.
+    document.getElementById(KAKAO_SCRIPT_ID)?.remove();
+
+    const script = document.createElement("script");
     script.id = KAKAO_SCRIPT_ID;
     script.src = src;
     script.async = false;
@@ -286,27 +289,29 @@ export function loadKakaoMapsSdk(appKey: string): Promise<void> {
       if (settled) return;
       settled = true;
       if (timeoutId) clearTimeout(timeoutId);
+      script.remove();
       kakaoLoadPromise = null;
       reject(err);
     };
+
+    // onload/onerror 둘 다 안 불리고 요청 자체가 응답 없이 멈추는 경우(WebView 환경에서
+    // 종종 관찰됨)에 대비해, 스크립트 요청 시작 시점부터 전체 로딩에 상한 시간을 둔다.
+    timeoutId = setTimeout(() => {
+      settleReject(new Error("카카오 지도 SDK 로딩이 응답 없이 멈췄습니다. 네트워크 상태를 확인해 주세요."));
+    }, LOAD_CALLBACK_TIMEOUT_MS);
 
     script.onload = () => {
       if (!window.kakao?.maps?.load) {
         settleReject(new Error("Kakao SDK는 로드됐지만 window.kakao.maps.load를 찾을 수 없습니다."));
         return;
       }
-      timeoutId = setTimeout(() => {
-        settleReject(new Error("Kakao 지도 엔진 스크립트 로딩이 응답 없이 멈췄습니다."));
-      }, LOAD_CALLBACK_TIMEOUT_MS);
       window.kakao.maps.load(() => settleResolve());
     };
     script.onerror = () => {
       settleReject(new Error("카카오 지도 SDK를 불러오지 못했습니다. 네트워크 상태를 확인해 주세요."));
     };
 
-    if (!existing) {
-      document.head.appendChild(script);
-    }
+    document.head.appendChild(script);
   });
 
   return kakaoLoadPromise;
