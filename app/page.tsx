@@ -22,6 +22,7 @@ import { useFavorites } from "./lib/favorites";
 import { CATEGORY_FILTER_KEYS, matchesCategoryFilter, type CategoryFilterKey } from "./lib/parkingFilters";
 import { useSettings } from "./lib/settings";
 import type { ParkingLot } from "./lib/types";
+import { useVoiceSearch, type VoiceLang, type VoiceSearchErrorCode } from "./lib/voiceSearch";
 
 type ViewMode = "map" | "list";
 
@@ -37,6 +38,23 @@ function geoErrorMessage(code: number, t: Dictionary): string {
       return t.geoTimeout;
     default:
       return t.geoUnknown;
+  }
+}
+
+function voiceErrorMessage(code: VoiceSearchErrorCode, t: Dictionary): string {
+  switch (code) {
+    case "unsupported":
+      return t.voiceErrorUnsupported;
+    case "insecure":
+      return t.voiceErrorInsecure;
+    case "not-allowed":
+      return t.voiceErrorNotAllowed;
+    case "no-speech":
+      return t.voiceErrorNoSpeech;
+    case "network":
+      return t.voiceErrorNetwork;
+    default:
+      return t.voiceErrorGeneric;
   }
 }
 
@@ -80,6 +98,39 @@ export default function Home() {
   const [suggestions, setSuggestions] = useState<PlaceSuggestion[]>([]);
   const [suggestionsOpen, setSuggestionsOpen] = useState(false);
   const suggestionSelectedRef = useRef(false);
+
+  // 음성 검색 인식 언어는 화면 언어(locale)와 별개로 토글로 직접 고른다 — 처음
+  // 진입 시에만 화면 언어에 맞춰 기본값을 잡아 준다.
+  const [voiceLang, setVoiceLang] = useState<VoiceLang>(locale === "en" ? "en-US" : "ko-KR");
+  const {
+    isListening: isVoiceListening,
+    isSupported: isVoiceSupported,
+    toggle: toggleVoiceListening,
+  } = useVoiceSearch({
+    lang: voiceLang,
+    onResult: (transcript) => {
+      setQuery(transcript);
+      suggestionSelectedRef.current = true; // 인식 결과는 연관 검색어 재조회 없이 바로 검색으로 넘어간다.
+      setSuggestionsOpen(false);
+      performSearch(transcript);
+    },
+    onError: (code) => {
+      if (code === "aborted") return; // 사용자가 직접 멈춘 경우는 에러로 안내하지 않는다.
+      showRegionToast(voiceErrorMessage(code, t));
+    },
+  });
+
+  function handleVoiceButtonClick() {
+    if (!isVoiceSupported) {
+      showRegionToast(t.voiceErrorUnsupported);
+      return;
+    }
+    toggleVoiceListening();
+  }
+
+  function toggleVoiceLang() {
+    setVoiceLang((prev) => (prev === "ko-KR" ? "en-US" : "ko-KR"));
+  }
 
   const [kakaoReady, setKakaoReady] = useState(false);
   const [myLocation, setMyLocation] = useState<LatLng | null>(null);
@@ -312,7 +363,14 @@ export default function Home() {
 
   async function handleSearchSubmit(e: FormEvent) {
     e.preventDefault();
-    const keyword = query.trim();
+    await performSearch(query.trim());
+  }
+
+  // handleSearchSubmit 본문에서 키워드를 받는 부분만 떼어냈다 — 음성 검색은 인식된
+  // 텍스트를 setQuery로 반영하는 것과 별개로, state 업데이트를 기다리지 않고 그
+  // 텍스트로 바로 검색을 실행해야 해서(리스너의 onResult 콜백에서 곧바로 호출) 이
+  // 함수가 필요하다.
+  async function performSearch(keyword: string) {
     if (!keyword) return;
 
     // 지명/주소 해석(Geocoder)을 상호명 검색보다 우선한다 — "해운대"는 상호명
@@ -429,6 +487,24 @@ export default function Home() {
               style={styles.searchInput}
               autoComplete="off"
             />
+            <button
+              type="button"
+              style={styles.voiceLangToggle}
+              onClick={toggleVoiceLang}
+              aria-label={t.voiceLangToggleAria(voiceLang === "ko-KR" ? t.langKorean : t.langEnglish)}
+            >
+              {voiceLang === "ko-KR" ? "KO" : "EN"}
+            </button>
+            <button
+              type="button"
+              className={isVoiceListening ? "voice-btn voice-btn-listening" : "voice-btn"}
+              style={styles.voiceButton}
+              onClick={handleVoiceButtonClick}
+              aria-pressed={isVoiceListening}
+              aria-label={isVoiceListening ? t.voiceSearchStopAria : t.voiceSearchAria}
+            >
+              🎤
+            </button>
           </form>
 
           {suggestionsOpen && suggestions.length > 0 && (
@@ -793,6 +869,33 @@ const styles: Record<string, CSSProperties> = {
     background: "transparent",
     fontSize: 14.5,
     color: "var(--text)",
+  },
+  voiceLangToggle: {
+    flexShrink: 0,
+    padding: "3px 7px",
+    fontSize: 10.5,
+    fontWeight: 700,
+    letterSpacing: 0.3,
+    color: "var(--text-dim)",
+    background: "var(--surface)",
+    border: "1px solid var(--border)",
+    borderRadius: 999,
+    cursor: "pointer",
+  },
+  voiceButton: {
+    flexShrink: 0,
+    width: 30,
+    height: 30,
+    borderRadius: "50%",
+    border: "none",
+    background: "transparent",
+    fontSize: 15,
+    lineHeight: 1,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    cursor: "pointer",
+    color: "var(--text-dim)",
   },
   filterChipRow: {
     display: "flex",

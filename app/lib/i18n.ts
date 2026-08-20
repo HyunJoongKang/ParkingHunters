@@ -6,6 +6,15 @@ export type Locale = "ko" | "en";
 export interface Dictionary {
   appTitle: string;
   searchPlaceholder: string;
+  voiceSearchAria: string;
+  voiceSearchStopAria: string;
+  voiceLangToggleAria(lang: string): string;
+  voiceErrorUnsupported: string;
+  voiceErrorInsecure: string;
+  voiceErrorNotAllowed: string;
+  voiceErrorNoSpeech: string;
+  voiceErrorNetwork: string;
+  voiceErrorGeneric: string;
   settingsAria: string;
   settingsTitle: string;
   languageLabel: string;
@@ -72,6 +81,15 @@ export interface Dictionary {
 const ko: Dictionary = {
   appTitle: "대구 주차",
   searchPlaceholder: "목적지 검색 (예: 동성로, 동대구역)",
+  voiceSearchAria: "음성으로 검색",
+  voiceSearchStopAria: "음성 인식 중지",
+  voiceLangToggleAria: (lang) => `음성 인식 언어: ${lang} (탭하여 전환)`,
+  voiceErrorUnsupported: "이 브라우저는 음성 인식을 지원하지 않습니다.",
+  voiceErrorInsecure: "음성 인식은 보안 연결(HTTPS)에서만 사용할 수 있습니다.",
+  voiceErrorNotAllowed: "마이크 권한이 거부되었습니다. 브라우저 설정에서 마이크 권한을 허용해 주세요.",
+  voiceErrorNoSpeech: "음성이 감지되지 않았습니다. 다시 시도해 주세요.",
+  voiceErrorNetwork: "네트워크 오류로 음성 인식에 실패했습니다.",
+  voiceErrorGeneric: "음성 인식 중 오류가 발생했습니다.",
   settingsAria: "설정",
   settingsTitle: "설정",
   languageLabel: "언어",
@@ -144,6 +162,15 @@ const ko: Dictionary = {
 const en: Dictionary = {
   appTitle: "Daegu Parking",
   searchPlaceholder: "Search location",
+  voiceSearchAria: "Search by voice",
+  voiceSearchStopAria: "Stop voice search",
+  voiceLangToggleAria: (lang) => `Voice search language: ${lang} (tap to switch)`,
+  voiceErrorUnsupported: "This browser doesn't support voice recognition.",
+  voiceErrorInsecure: "Voice recognition requires a secure (HTTPS) connection.",
+  voiceErrorNotAllowed: "Microphone access was denied. Please allow microphone permission in your browser settings.",
+  voiceErrorNoSpeech: "No speech was detected. Please try again.",
+  voiceErrorNetwork: "Voice recognition failed due to a network error.",
+  voiceErrorGeneric: "Something went wrong during voice recognition.",
   settingsAria: "Settings",
   settingsTitle: "Settings",
   languageLabel: "Language",

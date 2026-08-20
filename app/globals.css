@@ -178,6 +178,29 @@ input:focus-visible,
   transform: scale(0.97);
 }
 
+/* 음성 검색 마이크 버튼 — 인식 중(.voice-btn-listening)엔 배경을 --danger로 바꾸고,
+   ::after 가상 요소로 pulse-ring(위에서 정의) 애니메이션을 얹어 "녹음 중"임을 보여준다. */
+.voice-btn {
+  position: relative;
+  transition: background-color 0.15s ease, color 0.15s ease, transform 0.1s ease;
+}
+.voice-btn:active {
+  transform: scale(0.92);
+}
+.voice-btn-listening {
+  background: var(--danger) !important;
+  color: #ffffff !important;
+}
+.voice-btn-listening::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: var(--danger);
+  animation: pulse-ring 1.3s ease-out infinite;
+  z-index: -1;
+}
+
 .skeleton {
   background: linear-gradient(
     100deg,
