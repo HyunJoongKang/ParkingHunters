@@ -1,5 +1,3 @@
-import { HttpsProxyAgent } from "https-proxy-agent";
-import nodeFetch from "node-fetch";
 import { haversineDistanceM, type LatLng } from "./geo";
 import { clampAvailableSpots, resolveCongestion } from "./format";
 import type { ParkingLot } from "./types";
@@ -312,44 +310,26 @@ function mapDaeguItem(
   };
 }
 
-// 대구시 API가 IP를 근거로 요청을 걸러내는 것으로 보여, 예전 Vercel 서버리스 배포에서는
-// 매 요청마다 바뀌는 아웃바운드 IP 때문에 Fixie 같은 고정 IP 프록시(FIXIE_URL)가 필요했다.
-// 그런데 2026-08-20 curl로 직접 확인한 결과, 그 Fixie 고정 IP(criterium.usefixie.com)
-// 자체가 대구시 쪽에서 막혀 있어 기본정보/혼잡도 둘 다 401이 났고, 반대로 프록시 없이
-// 직접 호출하면 둘 다 200 정상 응답이었다. 지금 배포처(Cloudtype, 국내 리전)는 프록시
-// 없이도 통과되는 것으로 보여 FIXIE_URL을 비워 뒀다 — 이 코드는 나중에 또 다른 고정 IP
-// 프록시가 필요해질 경우를 위해 남겨 둔 것으로, FIXIE_URL이 비어 있으면 그냥 무시된다.
-//
-// 전역 fetch()(undici 기반)는 프록시 연결에 쓰는 dispatcher/agent 옵션을 안정적으로
-// 지원하지 않는다 — Next.js가 자체 fetch 패치를 씌워 dispatcher가 씹히는 사례가
-// 보고돼 있다(https://github.com/vercel/next.js/discussions/81916). 그래서 이 호출은
-// http.Agent 기반 프록시(https-proxy-agent)를 정식으로 지원하는 node-fetch를 쓴다.
-const daeguProxyAgent = process.env.FIXIE_URL ? new HttpsProxyAgent(process.env.FIXIE_URL) : undefined;
-
-// 캐시 주기(5분): Next.js의 fetch 옵션인 next: { revalidate: 300 }은 여기서 쓸 수 없다 —
-// 그 캐시는 Next.js가 패치한 전역 fetch()에만 걸리고, node-fetch(위 daeguProxyAgent 주석
-// 참고 — 프록시 agent 옵션 때문에 이걸 쓴다)에는 그런 훅 자체가 없어 조용히 무시된다.
-// 대신 getCachedLots()의 CACHE_TTL_MS(5 * 60 * 1000)가 이 호출들을 감싸 같은 효과(5분에
-// 한 번만 대구시 API를 실제로 호출)를 낸다.
-async function fetchDaeguJson<T>(
-  endpoint: string,
-  key: string,
-  label: string,
-  agent?: HttpsProxyAgent<string>
-): Promise<T[]> {
-  const res = await nodeFetch(endpoint, {
+// 예전에는 대구시 API의 IP 기반 차단을 우회하려고 Fixie 고정 IP 프록시(FIXIE_URL)를
+// 거쳐서 호출했다. 그런데 2026-08-20 curl로 직접 확인한 결과, 오히려 그 Fixie 고정 IP
+// (criterium.usefixie.com) 자체가 대구시 쪽에서 막혀 있어 기본정보/혼잡도 둘 다 401이
+// 났다. 프록시를 쓸 이유가 없어져 관련 로직(https-proxy-agent/node-fetch)을 걷어내고
+// 네이티브 fetch로 직접 호출한다.
+// 캐시 주기(5분): Next.js의 fetch 옵션인 next: { revalidate: 300 }을 쓰지 않고 대신
+// getCachedLots()의 CACHE_TTL_MS(5 * 60 * 1000)가 이 호출들을 감싸 같은 효과(5분에 한
+// 번만 대구시 API를 실제로 호출)를 낸다 — Authentication 커스텀 헤더를 쓰는 이 API
+// 응답은 어차피 Next.js의 fetch 캐시 대상이 아니라서 next.revalidate가 의미가 없다.
+async function fetchDaeguJson<T>(endpoint: string, key: string, label: string): Promise<T[]> {
+  const res = await fetch(endpoint, {
     headers: {
       accept: "application/json;charset=UTF-8",
       Authentication: key,
     },
-    agent,
   });
   if (!res.ok) {
     throw new Error(`${label} API 요청 실패 (HTTP ${res.status})`);
   }
-  // node-fetch의 json()은 unknown을 반환한다(네이티브 fetch는 any) — 이 API의
-  // 응답 형태를 강타입으로 정의해 두지 않은 기존 스타일을 그대로 유지한다.
-  const json = (await res.json()) as any;
+  const json = await res.json();
   if (json?.resultCode !== "200") {
     throw new Error(`${label} API 오류: ${json?.message ?? "알 수 없는 오류"}`);
   }
@@ -373,7 +353,7 @@ async function loadDaeguCityParkingLots(): Promise<ParkingLot[]> {
 
   let infoItems: DaeguPrkInfoItem[];
   try {
-    infoItems = await fetchDaeguJson<DaeguPrkInfoItem>(infoEndpoint, infoKey, "주차장 기본정보", daeguProxyAgent);
+    infoItems = await fetchDaeguJson<DaeguPrkInfoItem>(infoEndpoint, infoKey, "주차장 기본정보");
   } catch (err) {
     console.warn(
       `[대구시 API] 기본정보 조회 실패 — 임시 주차장 목록으로 대체합니다: ${(err as Error).message}`
@@ -393,8 +373,7 @@ async function loadDaeguCityParkingLots(): Promise<ParkingLot[]> {
       congestionItems = await fetchDaeguJson<DaeguRltmPrkInfoItem>(
         congestionEndpoint,
         congestionKey,
-        "실시간 주차 혼잡도",
-        daeguProxyAgent
+        "실시간 주차 혼잡도"
       );
     } catch (err) {
       console.warn(
