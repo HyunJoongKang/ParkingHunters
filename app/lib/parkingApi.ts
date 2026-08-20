@@ -1,3 +1,5 @@
+import { HttpsProxyAgent } from "https-proxy-agent";
+import nodeFetch from "node-fetch";
 import { haversineDistanceM, type LatLng } from "./geo";
 import { clampAvailableSpots, resolveCongestion } from "./format";
 import type { ParkingLot } from "./types";
@@ -310,26 +312,37 @@ function mapDaeguItem(
   };
 }
 
-// 예전에는 대구시 API의 IP 기반 차단을 우회하려고 Fixie 고정 IP 프록시(FIXIE_URL)를
-// 거쳐서 호출했다. 그런데 2026-08-20 curl로 직접 확인한 결과, 오히려 그 Fixie 고정 IP
-// (criterium.usefixie.com) 자체가 대구시 쪽에서 막혀 있어 기본정보/혼잡도 둘 다 401이
-// 났다. 프록시를 쓸 이유가 없어져 관련 로직(https-proxy-agent/node-fetch)을 걷어내고
-// 네이티브 fetch로 직접 호출한다.
-// 캐시 주기(5분): Next.js의 fetch 옵션인 next: { revalidate: 300 }을 쓰지 않고 대신
-// getCachedLots()의 CACHE_TTL_MS(5 * 60 * 1000)가 이 호출들을 감싸 같은 효과(5분에 한
-// 번만 대구시 API를 실제로 호출)를 낸다 — Authentication 커스텀 헤더를 쓰는 이 API
-// 응답은 어차피 Next.js의 fetch 캐시 대상이 아니라서 next.revalidate가 의미가 없다.
+// 대구시 API는 IP 화이트리스트 방식이다. Cloudtype은 고정 아웃바운드 IP 옵션이 없어서
+// 재배포/재시작마다 나가는 IP가 바뀐다(2026-08-20 실측: 34.64.220.67 → 34.64.184.142로
+// 변경 확인) — 그래서 Cloudtype IP를 대구시에 등록해 봤자 다음 재배포에서 다시 막힌다.
+// 근본 해결은 Cloudtype과 무관하게 IP가 절대 안 바뀌는 고정 IP 프록시(예: Fixie)를 거쳐서
+// 나가는 것 — 그 프록시의 IP 하나만 대구시에 한 번 등록해 두면 이후 재배포와 무관하게
+// 계속 통과한다(2026-08-20 확인: criterium.usefixie.com의 실제 출구 IP는 52.5.155.132로
+// 고정돼 있음 — 대구시 쪽에 이 IP를 화이트리스트 등록해야 함).
+// FIXIE_URL이 없으면(로컬 개발 등) 프록시 없이 직접 호출한다 — 대구시가 그 IP를 막아
+// 401이 나도 아래 loadDaeguCityParkingLots의 try/catch가 더미 목록으로 흡수한다.
+const daeguProxyAgent = process.env.FIXIE_URL ? new HttpsProxyAgent(process.env.FIXIE_URL) : undefined;
+
+// 캐시 주기(5분): Next.js의 fetch 옵션인 next: { revalidate: 300 }은 여기서 쓸 수 없다 —
+// 그 캐시는 Next.js가 패치한 전역 fetch()에만 걸리고, 프록시 agent 옵션을 정식으로
+// 지원하는 node-fetch(전역 fetch는 undici 기반이라 dispatcher 옵션이 불안정하다:
+// https://github.com/vercel/next.js/discussions/81916)에는 그런 훅이 없어 조용히
+// 무시된다. 대신 getCachedLots()의 CACHE_TTL_MS(5 * 60 * 1000)가 이 호출들을 감싸 같은
+// 효과(5분에 한 번만 대구시 API를 실제로 호출)를 낸다.
 async function fetchDaeguJson<T>(endpoint: string, key: string, label: string): Promise<T[]> {
-  const res = await fetch(endpoint, {
+  const res = await nodeFetch(endpoint, {
     headers: {
       accept: "application/json;charset=UTF-8",
       Authentication: key,
     },
+    agent: daeguProxyAgent,
   });
   if (!res.ok) {
     throw new Error(`${label} API 요청 실패 (HTTP ${res.status})`);
   }
-  const json = await res.json();
+  // node-fetch의 json()은 unknown을 반환한다(네이티브 fetch는 any) — 이 API의
+  // 응답 형태를 강타입으로 정의해 두지 않은 기존 스타일을 그대로 유지한다.
+  const json = (await res.json()) as any;
   if (json?.resultCode !== "200") {
     throw new Error(`${label} API 오류: ${json?.message ?? "알 수 없는 오류"}`);
   }
