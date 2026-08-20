@@ -22,7 +22,7 @@ import { useFavorites } from "./lib/favorites";
 import { CATEGORY_FILTER_KEYS, matchesCategoryFilter, type CategoryFilterKey } from "./lib/parkingFilters";
 import { useSettings } from "./lib/settings";
 import type { ParkingLot } from "./lib/types";
-import { useVoiceSearch, type VoiceLang, type VoiceSearchErrorCode } from "./lib/voiceSearch";
+import { useVoiceSearch, type VoiceSearchErrorCode } from "./lib/voiceSearch";
 
 type ViewMode = "map" | "list";
 
@@ -99,15 +99,13 @@ export default function Home() {
   const [suggestionsOpen, setSuggestionsOpen] = useState(false);
   const suggestionSelectedRef = useRef(false);
 
-  // 음성 검색 인식 언어는 화면 언어(locale)와 별개로 토글로 직접 고른다 — 처음
-  // 진입 시에만 화면 언어에 맞춰 기본값을 잡아 준다.
-  const [voiceLang, setVoiceLang] = useState<VoiceLang>(locale === "en" ? "en-US" : "ko-KR");
+  // 음성 검색 인식 언어는 한국어로 고정한다(대구 지명 위주라 다국어 지원이 필요 없음).
   const {
     isListening: isVoiceListening,
     isSupported: isVoiceSupported,
     toggle: toggleVoiceListening,
   } = useVoiceSearch({
-    lang: voiceLang,
+    lang: "ko-KR",
     onResult: (transcript) => {
       setQuery(transcript);
       suggestionSelectedRef.current = true; // 인식 결과는 연관 검색어 재조회 없이 바로 검색으로 넘어간다.
@@ -126,10 +124,6 @@ export default function Home() {
       return;
     }
     toggleVoiceListening();
-  }
-
-  function toggleVoiceLang() {
-    setVoiceLang((prev) => (prev === "ko-KR" ? "en-US" : "ko-KR"));
   }
 
   const [kakaoReady, setKakaoReady] = useState(false);
@@ -487,14 +481,6 @@ export default function Home() {
               style={styles.searchInput}
               autoComplete="off"
             />
-            <button
-              type="button"
-              style={styles.voiceLangToggle}
-              onClick={toggleVoiceLang}
-              aria-label={t.voiceLangToggleAria(voiceLang === "ko-KR" ? t.langKorean : t.langEnglish)}
-            >
-              {voiceLang === "ko-KR" ? "KO" : "EN"}
-            </button>
             <button
               type="button"
               className={isVoiceListening ? "voice-btn voice-btn-listening" : "voice-btn"}
@@ -869,18 +855,6 @@ const styles: Record<string, CSSProperties> = {
     background: "transparent",
     fontSize: 14.5,
     color: "var(--text)",
-  },
-  voiceLangToggle: {
-    flexShrink: 0,
-    padding: "3px 7px",
-    fontSize: 10.5,
-    fontWeight: 700,
-    letterSpacing: 0.3,
-    color: "var(--text-dim)",
-    background: "var(--surface)",
-    border: "1px solid var(--border)",
-    borderRadius: 999,
-    cursor: "pointer",
   },
   voiceButton: {
     flexShrink: 0,

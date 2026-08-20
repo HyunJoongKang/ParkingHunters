@@ -8,7 +8,6 @@ export interface Dictionary {
   searchPlaceholder: string;
   voiceSearchAria: string;
   voiceSearchStopAria: string;
-  voiceLangToggleAria(lang: string): string;
   voiceErrorUnsupported: string;
   voiceErrorInsecure: string;
   voiceErrorNotAllowed: string;
@@ -83,7 +82,6 @@ const ko: Dictionary = {
   searchPlaceholder: "목적지 검색 (예: 동성로, 동대구역)",
   voiceSearchAria: "음성으로 검색",
   voiceSearchStopAria: "음성 인식 중지",
-  voiceLangToggleAria: (lang) => `음성 인식 언어: ${lang} (탭하여 전환)`,
   voiceErrorUnsupported: "이 브라우저는 음성 인식을 지원하지 않습니다.",
   voiceErrorInsecure: "음성 인식은 보안 연결(HTTPS)에서만 사용할 수 있습니다.",
   voiceErrorNotAllowed:
@@ -165,7 +163,6 @@ const en: Dictionary = {
   searchPlaceholder: "Search location",
   voiceSearchAria: "Search by voice",
   voiceSearchStopAria: "Stop voice search",
-  voiceLangToggleAria: (lang) => `Voice search language: ${lang} (tap to switch)`,
   voiceErrorUnsupported: "This browser doesn't support voice recognition.",
   voiceErrorInsecure: "Voice recognition requires a secure (HTTPS) connection.",
   voiceErrorNotAllowed:
