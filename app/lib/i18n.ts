@@ -4,7 +4,6 @@ import type { Congestion } from "./types";
 export type Locale = "ko" | "en";
 
 export interface Dictionary {
-  appTitle: string;
   searchPlaceholder: string;
   voiceSearchAria: string;
   voiceSearchStopAria: string;
@@ -69,7 +68,6 @@ export interface Dictionary {
   badgePaid: string;
   locationLabel(label: string): string;
   locationRetryHint(message: string): string;
-  nearbyTitle(label: string): string;
   nearbyContext(label: string): string;
   searchNotFound(keyword: string): string;
   searchOutOfRegion(keyword: string): string;
@@ -78,7 +76,6 @@ export interface Dictionary {
 }
 
 const ko: Dictionary = {
-  appTitle: "대구 주차",
   searchPlaceholder: "목적지 검색 (예: 동성로, 동대구역)",
   voiceSearchAria: "음성으로 검색",
   voiceSearchStopAria: "음성 인식 중지",
@@ -150,7 +147,6 @@ const ko: Dictionary = {
   badgePaid: "유료",
   locationLabel: (label) => `현재 위치: ${label}`,
   locationRetryHint: (message) => `${message} (탭하여 다시 시도)`,
-  nearbyTitle: (label) => `${label} 근처`,
   nearbyContext: (label) => `${label} 근처 · 실거리순`,
   searchNotFound: (keyword) => `"${keyword}"의 정확한 위치를 찾지 못해 대구 중심 기준으로 보여드려요.`,
   searchOutOfRegion: (keyword) => `"${keyword}"은(는) 대경권(대구·경북) 지역이 아닙니다.`,
@@ -159,7 +155,6 @@ const ko: Dictionary = {
 };
 
 const en: Dictionary = {
-  appTitle: "Daegu Parking",
   searchPlaceholder: "Search location",
   voiceSearchAria: "Search by voice",
   voiceSearchStopAria: "Stop voice search",
@@ -231,7 +226,6 @@ const en: Dictionary = {
   badgePaid: "Paid",
   locationLabel: (label) => `Current location: ${label}`,
   locationRetryHint: (message) => `${message} (tap to retry)`,
-  nearbyTitle: (label) => `Near ${label}`,
   nearbyContext: (label) => `Near ${label} · Sorted by distance`,
   searchNotFound: (keyword) =>
     `Couldn't find an exact location for "${keyword}" — showing results near central Daegu instead.`,

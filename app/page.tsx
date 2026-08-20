@@ -93,6 +93,40 @@ export default function Home() {
   const { isFavorite } = useFavorites();
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
   const [activeFilter, setActiveFilter] = useState<CategoryFilterKey>("all");
+
+  // 필터 칩 한 줄 가로 스크롤 하단의 인디케이터 바 — 실제 스크롤 위치/보이는 비율에
+  // 맞춰 얇은 바(thumb)의 폭과 위치를 계산해 보여준다(OS 기본 스크롤바는 기기/브라우저
+  // 마다 표시 여부가 달라 커스텀으로 항상 보이게 만든 것).
+  const filterRowRef = useRef<HTMLDivElement | null>(null);
+  const [filterScrollThumb, setFilterScrollThumb] = useState({ widthPct: 100, leftPct: 0 });
+
+  function updateFilterScrollThumb() {
+    const el = filterRowRef.current;
+    if (!el) return;
+    const { scrollWidth, clientWidth, scrollLeft } = el;
+    if (scrollWidth <= clientWidth) {
+      setFilterScrollThumb({ widthPct: 100, leftPct: 0 });
+      return;
+    }
+    const widthPct = (clientWidth / scrollWidth) * 100;
+    const maxScroll = scrollWidth - clientWidth;
+    const leftPct = maxScroll > 0 ? (scrollLeft / maxScroll) * (100 - widthPct) : 0;
+    setFilterScrollThumb({ widthPct, leftPct });
+  }
+
+  // 지도/리스트 모드 전환마다 이 행이 언마운트·재마운트돼 ref가 새 DOM 노드를
+  // 가리키게 된다 — 콜백 ref로 노드가 붙는 시점마다 바로 다시 측정한다.
+  function setFilterRowRef(el: HTMLDivElement | null) {
+    filterRowRef.current = el;
+    if (el) updateFilterScrollThumb();
+  }
+
+  useEffect(() => {
+    updateFilterScrollThumb();
+    window.addEventListener("resize", updateFilterScrollThumb);
+    return () => window.removeEventListener("resize", updateFilterScrollThumb);
+    // locale이 바뀌면 칩 문구 길이가 바뀌어 스크롤 가능한 폭도 달라진다.
+  }, [locale]);
   const [viewMode, setViewMode] = useState<ViewMode>("map");
   const [query, setQuery] = useState("");
   const [suggestions, setSuggestions] = useState<PlaceSuggestion[]>([]);
@@ -454,9 +488,15 @@ export default function Home() {
       <>
         <div style={styles.appBarRow}>
           <span style={styles.brandMark}>P</span>
-          <div style={styles.appBarTitle} translate="no" className="notranslate">
-            {searchLabel ? t.nearbyTitle(searchLabel) : t.appTitle}
-          </div>
+          <button
+            type="button"
+            style={{ ...styles.appBarTitle, ...styles.appBarTitleButton }}
+            onClick={requestCurrentLocation}
+            translate="no"
+            className="notranslate"
+          >
+            📍 {locationChipText}
+          </button>
           <button
             type="button"
             style={styles.settingsButton}
@@ -489,7 +529,13 @@ export default function Home() {
               aria-pressed={isVoiceListening}
               aria-label={isVoiceListening ? t.voiceSearchStopAria : t.voiceSearchAria}
             >
-              🎤
+              {/* 음성 검색 표준 아이콘(마이크 캡슐+스탠드) — 이모지 대신 SVG를 써서
+                  currentColor를 상속받게 한다. 이모지는 자체 색을 갖고 있어 인식 중
+                  버튼 배경이 --danger로 바뀌어도 흰색으로 안 바뀐다. */}
+              <svg viewBox="0 0 24 24" width="17" height="17" fill="currentColor" aria-hidden="true">
+                <path d="M12 15a3.5 3.5 0 0 0 3.5-3.5v-6a3.5 3.5 0 0 0-7 0v6A3.5 3.5 0 0 0 12 15z" />
+                <path d="M18.5 11.5a1 1 0 1 0-2 0 4.5 4.5 0 0 1-9 0 1 1 0 1 0-2 0 6.5 6.5 0 0 0 5.75 6.46V20H9a1 1 0 1 0 0 2h6a1 1 0 1 0 0-2h-2.25v-2.04a6.5 6.5 0 0 0 5.75-6.46z" />
+              </svg>
             </button>
           </form>
 
@@ -529,8 +575,30 @@ export default function Home() {
           )}
         </div>
 
-        <div style={styles.filterChipRow}>
-          {CATEGORY_FILTER_KEYS.map((key) => (
+        <div style={styles.filterChipRow} ref={setFilterRowRef} onScroll={updateFilterScrollThumb}>
+          <button
+            type="button"
+            style={{
+              ...styles.filterChip,
+              ...(activeFilter === "all" ? styles.filterChipActive : null),
+            }}
+            onClick={() => setActiveFilter("all")}
+            aria-pressed={activeFilter === "all"}
+          >
+            {t.categoryFilterLabel.all}
+          </button>
+          <button
+            type="button"
+            style={{
+              ...styles.filterChip,
+              ...(showFavoritesOnly ? styles.filterChipActive : null),
+            }}
+            onClick={() => setShowFavoritesOnly((prev) => !prev)}
+            aria-pressed={showFavoritesOnly}
+          >
+            {showFavoritesOnly ? "❤️" : "🤍"} {t.favoritesOnlyLabel}
+          </button>
+          {CATEGORY_FILTER_KEYS.filter((key) => key !== "all" && key !== "public").map((key) => (
             <button
               key={key}
               type="button"
@@ -545,28 +613,14 @@ export default function Home() {
             </button>
           ))}
         </div>
-
-        <div style={styles.chipRow}>
-          <button
-            type="button"
-            style={styles.locationChip}
-            onClick={requestCurrentLocation}
-            translate="no"
-            className="notranslate"
-          >
-            📍 {locationChipText}
-          </button>
-          <button
-            type="button"
+        <div style={styles.filterScrollTrack} aria-hidden="true">
+          <div
             style={{
-              ...styles.favoritesOnlyChip,
-              ...(showFavoritesOnly ? styles.favoritesOnlyChipActive : null),
+              ...styles.filterScrollThumb,
+              width: `${filterScrollThumb.widthPct}%`,
+              left: `${filterScrollThumb.leftPct}%`,
             }}
-            onClick={() => setShowFavoritesOnly((prev) => !prev)}
-            aria-pressed={showFavoritesOnly}
-          >
-            {showFavoritesOnly ? "❤️" : "🤍"} {t.favoritesOnlyLabel}
-          </button>
+          />
         </div>
 
         {searchLabel && (
@@ -747,12 +801,21 @@ const styles: Record<string, CSSProperties> = {
     justifyContent: "center",
   },
   appBarTitle: {
-    fontSize: 15.5,
+    flex: 1,
+    marginLeft: 10,
+    fontSize: 14,
     fontWeight: 700,
     color: "var(--text)",
     overflow: "hidden",
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
+  },
+  appBarTitleButton: {
+    textAlign: "left",
+    border: "none",
+    background: "transparent",
+    padding: 0,
+    cursor: "pointer",
   },
   settingsButton: {
     width: 30,
@@ -873,10 +936,27 @@ const styles: Record<string, CSSProperties> = {
   },
   filterChipRow: {
     display: "flex",
+    flexWrap: "nowrap",
     alignItems: "center",
     gap: 8,
     overflowX: "auto",
     paddingBottom: 2,
+  },
+  filterScrollTrack: {
+    position: "relative",
+    height: 3,
+    marginTop: 2,
+    borderRadius: 999,
+    background: "var(--border)",
+    overflow: "hidden",
+  },
+  filterScrollThumb: {
+    position: "absolute",
+    top: 0,
+    height: "100%",
+    borderRadius: 999,
+    background: "var(--accent)",
+    transition: "left 0.05s linear, width 0.15s ease",
   },
   filterChip: {
     flexShrink: 0,
@@ -897,46 +977,6 @@ const styles: Record<string, CSSProperties> = {
     color: "#fff",
     transform: "scale(1.04)",
     boxShadow: "0 6px 16px rgba(var(--accent-rgb), 0.35)",
-  },
-  chipRow: {
-    display: "flex",
-    alignItems: "center",
-    gap: 8,
-    flexWrap: "wrap",
-  },
-  locationChip: {
-    alignSelf: "flex-start",
-    display: "inline-flex",
-    alignItems: "center",
-    gap: 4,
-    padding: "6px 12px",
-    borderRadius: 999,
-    border: "1px solid var(--border)",
-    background: "var(--surface-alt)",
-    color: "var(--text-dim)",
-    fontWeight: 600,
-    fontSize: 12,
-    cursor: "pointer",
-  },
-  favoritesOnlyChip: {
-    alignSelf: "flex-start",
-    display: "inline-flex",
-    alignItems: "center",
-    gap: 4,
-    padding: "6px 12px",
-    borderRadius: 999,
-    border: "1px solid var(--border)",
-    background: "var(--surface-alt)",
-    color: "var(--text-dim)",
-    fontWeight: 600,
-    fontSize: 12,
-    cursor: "pointer",
-    transition: "background 0.2s ease, color 0.2s ease, border-color 0.2s ease, transform 0.15s ease",
-  },
-  favoritesOnlyChipActive: {
-    border: "1px solid var(--accent-line)",
-    background: "var(--accent-soft)",
-    color: "var(--accent-strong)",
   },
   contextRow: {
     display: "flex",
