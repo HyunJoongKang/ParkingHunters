@@ -20,6 +20,15 @@ const DAEGU_VOICE_CORRECTIONS: Correction[] = [
   { pattern: "동대구", replacement: "동대구역" },
   { pattern: "공영주차", replacement: "공영주차장" },
   { pattern: "공용주차장", replacement: "공영주차장" },
+  // "사월역"(대구 2호선)은 인지도 높은 "서울역"으로 오인식되는 경우가 많다. 이 앱은
+  // 대경권 주차장만 다루는 특화 서비스라 "서울역"을 실제로 검색할 일이 없으므로,
+  // 안내 없이 "사월역"으로 바로 보정한다.
+  { pattern: "서울역", replacement: "사월역" },
+  { pattern: "서월역", replacement: "사월역" },
+  { pattern: "사월", replacement: "사월역" },
+  { pattern: "서문시장역", replacement: "서문시장" },
+  { pattern: "신매", replacement: "신매역" },
+  { pattern: "정평", replacement: "정평역" },
 ];
 
 // 긴 패턴부터 적용한다 — "수성모"(3글자) 규칙이 먼저 걸리면 "수성모드"(4글자)의
