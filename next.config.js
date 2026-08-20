@@ -43,6 +43,9 @@ const securityHeaders = [
 ];
 
 const nextConfig = {
+  // Cloudtype 등 컨테이너 배포 시 이미지 크기를 줄이고 `node server.js`만으로 구동할 수
+  // 있도록 standalone 산출물을 생성한다(Dockerfile이 .next/standalone을 그대로 복사).
+  output: "standalone",
   async headers() {
     return [
       {

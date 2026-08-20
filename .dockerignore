@@ -1,0 +1,10 @@
+node_modules
+.next
+.git
+.vercel
+mobile
+*.log
+*.tsbuildinfo
+.env*
+!.env*.example
+README.md
