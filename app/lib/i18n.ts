@@ -86,7 +86,8 @@ const ko: Dictionary = {
   voiceLangToggleAria: (lang) => `음성 인식 언어: ${lang} (탭하여 전환)`,
   voiceErrorUnsupported: "이 브라우저는 음성 인식을 지원하지 않습니다.",
   voiceErrorInsecure: "음성 인식은 보안 연결(HTTPS)에서만 사용할 수 있습니다.",
-  voiceErrorNotAllowed: "마이크 권한이 거부되었습니다. 브라우저 설정에서 마이크 권한을 허용해 주세요.",
+  voiceErrorNotAllowed:
+    "마이크 권한이 차단되어 있습니다. 브라우저 주소창 왼쪽 설정(자물쇠/마이크 아이콘)에서 마이크 허용으로 변경해 주세요.",
   voiceErrorNoSpeech: "음성이 감지되지 않았습니다. 다시 시도해 주세요.",
   voiceErrorNetwork: "네트워크 오류로 음성 인식에 실패했습니다.",
   voiceErrorGeneric: "음성 인식 중 오류가 발생했습니다.",
@@ -167,7 +168,8 @@ const en: Dictionary = {
   voiceLangToggleAria: (lang) => `Voice search language: ${lang} (tap to switch)`,
   voiceErrorUnsupported: "This browser doesn't support voice recognition.",
   voiceErrorInsecure: "Voice recognition requires a secure (HTTPS) connection.",
-  voiceErrorNotAllowed: "Microphone access was denied. Please allow microphone permission in your browser settings.",
+  voiceErrorNotAllowed:
+    "Microphone access is blocked. Click the lock/mic icon on the left of your browser's address bar and allow microphone access.",
   voiceErrorNoSpeech: "No speech was detected. Please try again.",
   voiceErrorNetwork: "Voice recognition failed due to a network error.",
   voiceErrorGeneric: "Something went wrong during voice recognition.",

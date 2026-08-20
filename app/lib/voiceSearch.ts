@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { correctDaeguVoiceText } from "./voiceCorrections";
 
 // 표준 SpeechRecognition은 아직 lib.dom.d.ts에 없고(webkit 접두사 시절 API가 그대로
 // 굳어진 상태), 별도 타입 패키지를 추가하지 않기로 해서(요구사항: 추가 라이브러리
@@ -50,6 +51,38 @@ function mapErrorCode(rawCode: string | undefined): VoiceSearchErrorCode {
   }
 }
 
+// navigator.permissions로 마이크 권한 상태를 먼저 확인한다 — 'denied'면 브라우저가
+// 팝업조차 안 띄우므로 SpeechRecognition.start()를 시도하기 전에 걸러서 더 명확한
+// 안내(설정에서 직접 풀어야 함)를 줄 수 있다. 'prompt'(아직 결정 안 됨)이면 실제
+// getUserMedia를 호출해 권한 팝업을 띄운다 — 이 스트림 자체는 SpeechRecognition이
+// 내부적으로 별도 캡처를 하므로 권한만 확인한 뒤 즉시 트랙을 정지한다. Permissions
+// API가 "microphone" 이름을 지원하지 않는 브라우저(Firefox 등)에서는 조용히 넘어가고
+// SpeechRecognition 자체의 onerror 처리에 맡긴다 — 다른 기능에 영향 없는 비침습적
+// 처리를 위해 여기서 던지는 예외는 전부 삼킨다.
+async function checkMicrophonePermission(): Promise<"granted" | "denied" | "unavailable"> {
+  if (typeof navigator === "undefined") return "unavailable";
+
+  try {
+    if (navigator.permissions?.query) {
+      const status = await navigator.permissions.query({ name: "microphone" as PermissionName });
+      if (status.state === "granted") return "granted";
+      if (status.state === "denied") return "denied";
+      // status.state === "prompt" — 아래에서 실제 권한 팝업을 띄워 결정을 받는다.
+    }
+  } catch {
+    // "microphone" 권한 이름을 모르는 브라우저 — 무시하고 getUserMedia로 넘어간다.
+  }
+
+  if (!navigator.mediaDevices?.getUserMedia) return "unavailable";
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    stream.getTracks().forEach((track) => track.stop());
+    return "granted";
+  } catch {
+    return "denied";
+  }
+}
+
 // Web Speech API(webkitSpeechRecognition)만으로 음성 검색을 구현한 훅. 별도 npm
 // 패키지 없이, 브라우저가 기본 제공하는 SpeechRecognition/webkitSpeechRecognition
 // 생성자를 그대로 쓴다. 지원하지 않는 브라우저이거나(대부분의 Firefox 등)
@@ -75,7 +108,7 @@ export function useVoiceSearch({ lang, onResult, onError }: UseVoiceSearchOption
     recognitionRef.current?.stop();
   }, []);
 
-  const start = useCallback(() => {
+  const start = useCallback(async () => {
     if (typeof window === "undefined") return;
     if (recognitionRef.current) return; // 이미 듣고 있는 중이면 중복 시작하지 않는다.
 
@@ -90,6 +123,16 @@ export function useVoiceSearch({ lang, onResult, onError }: UseVoiceSearchOption
       onErrorRef.current("insecure");
       return;
     }
+
+    const permission = await checkMicrophonePermission();
+    if (permission === "denied") {
+      onErrorRef.current("not-allowed");
+      return;
+    }
+    // permission이 "granted"거나(방금 프롬프트에서 막 허용받은 경우 포함) "unavailable"
+    // (권한 API 자체를 지원 안 하는 브라우저)이면 계속 진행한다 — "unavailable"인 경우
+    // recognition.start()가 실패하면 onerror가 걸러준다.
+    if (recognitionRef.current) return; // 권한 확인이 비동기로 도는 사이 이미 다른 시작 요청이 있었으면 중복 방지.
 
     const recognition = new SpeechRecognitionCtor();
     recognition.lang = langRef.current;
@@ -108,8 +151,8 @@ export function useVoiceSearch({ lang, onResult, onError }: UseVoiceSearchOption
       onErrorRef.current(mapErrorCode(event?.error));
     };
     recognition.onresult = (event: { results: { [index: number]: { [index: number]: { transcript?: string } } } }) => {
-      const transcript = event.results?.[0]?.[0]?.transcript?.trim();
-      if (transcript) onResultRef.current(transcript);
+      const rawTranscript = event.results?.[0]?.[0]?.transcript?.trim();
+      if (rawTranscript) onResultRef.current(correctDaeguVoiceText(rawTranscript));
     };
 
     recognitionRef.current = recognition;
