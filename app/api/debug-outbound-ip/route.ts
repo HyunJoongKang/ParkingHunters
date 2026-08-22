@@ -24,8 +24,45 @@ async function fetchOutboundIp(agent?: HttpsProxyAgent<string>): Promise<string 
   return data.ip ?? null;
 }
 
+interface DaeguProbeResult {
+  status: number | null;
+  bodySnippet: string | null;
+  error: string | null;
+}
+
+// 실제 대구시 API를 direct/proxied 경로로 호출해 지금 이 순간 어느 경로가 통과하는지
+// 그대로 보여준다. 키 값 자체는 응답에 절대 포함하지 않는다(상태 코드/본문 일부만).
+async function probeDaegu(
+  endpoint: string | undefined,
+  key: string | undefined,
+  agent?: HttpsProxyAgent<string>
+): Promise<DaeguProbeResult> {
+  if (!endpoint || !key) {
+    return { status: null, bodySnippet: null, error: "엔드포인트 또는 키 미설정" };
+  }
+  try {
+    const res = await nodeFetch(endpoint, {
+      headers: { accept: "application/json;charset=UTF-8", Authentication: key },
+      agent,
+    });
+    const text = await res.text();
+    return { status: res.status, bodySnippet: text.slice(0, 200), error: null };
+  } catch (err) {
+    return { status: null, bodySnippet: null, error: err instanceof Error ? err.message : "요청 실패" };
+  }
+}
+
 export async function GET() {
-  const result: { directIp?: string | null; proxiedIp?: string | null; proxyConfigured: boolean; error?: string } = {
+  const result: {
+    directIp?: string | null;
+    proxiedIp?: string | null;
+    proxyConfigured: boolean;
+    error?: string;
+    daegu?: {
+      info: { direct: DaeguProbeResult; proxied: DaeguProbeResult | null };
+      congestion: { direct: DaeguProbeResult; proxied: DaeguProbeResult | null };
+    };
+  } = {
     proxyConfigured: Boolean(daeguProxyAgent),
   };
 
@@ -43,6 +80,29 @@ export async function GET() {
       result.error = result.error ? `${result.error}; ${message}` : message;
     }
   }
+
+  // 지금 이 순간 direct(현재 Cloudtype 컨테이너 IP)와 proxied(Fixie IP) 중 어느 경로로
+  // 대구시 API를 실제로 호출했을 때 통과하는지 함께 확인한다 — "마지막 신청 IP 1개만
+  // 남고 이전 등록은 덮어써지는 것 아니냐"는 가설을 검증하기 위해, 두 경로 모두의
+  // 실제 HTTP 상태를 그대로 보여준다.
+  const infoEndpoint = process.env.DAEGU_PARKING_INFO_ENDPOINT || "https://pis.daegu.go.kr/api/serviceApply/prkInfo";
+  const congestionEndpoint =
+    process.env.DAEGU_PARKING_CONGESTION_ENDPOINT || "https://pis.daegu.go.kr/api/serviceApply/rltmPrkInfo";
+
+  result.daegu = {
+    info: {
+      direct: await probeDaegu(infoEndpoint, process.env.DAEGU_PARKING_INFO_KEY),
+      proxied: daeguProxyAgent
+        ? await probeDaegu(infoEndpoint, process.env.DAEGU_PARKING_INFO_KEY, daeguProxyAgent)
+        : null,
+    },
+    congestion: {
+      direct: await probeDaegu(congestionEndpoint, process.env.DAEGU_PARKING_CONGESTION_KEY),
+      proxied: daeguProxyAgent
+        ? await probeDaegu(congestionEndpoint, process.env.DAEGU_PARKING_CONGESTION_KEY, daeguProxyAgent)
+        : null,
+    },
+  };
 
   return NextResponse.json(result, { status: result.error ? 502 : 200 });
 }
